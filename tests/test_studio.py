@@ -306,9 +306,9 @@ def run_tests(api, env):
           f"submitted SLURM jobs read from the job log: {[(x['id'], x['kind'], x['n_tasks']) for x in subs]}")
     js = subprocess.run([PY, str(Path(cfg).parent / "scripts" / "campaign.py"), cfg, "status", "--json"], capture_output=True, text=True, env=env)
     sj = json.loads(js.stdout)
-    m1, m2 = sj["measured"]["median"], st["timing"]["measured"]["median"]
-    check(abs(m1 - m2) <= 1e-6 * max(1, m1), f"measured sec_per_structure: app {m2:.4f} = campaign.py status --json {m1:.4f}")
-    check(sj["structures"] == st["counts"]["planned"] and sj["unfinished"] == st["chunks"]["unfinished"], "status --json agrees on chunks")
+    m1, m2 = sj["sec_per_structure"]["median"], st["timing"]["measured"]["median"]
+    check(abs(m1 - m2) <= 0.006, f"measured sec_per_structure: app {m2:.4f} = campaign.py status --json {m1:.2f}")
+    check(sj["planned"] == st["counts"]["planned"] and sj["chunks"]["unfinished"] == st["chunks"]["unfinished"], "status --json agrees on chunks")
     # live SLURM view with a fake squeue / sacct: the compute task runs, the merge job waits
     cid = [x["id"] for x in subs if x["kind"] == "compute"][-1]
     mid = [x["id"] for x in subs if x["kind"] == "merge"][-1]

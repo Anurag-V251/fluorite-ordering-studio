@@ -7,7 +7,8 @@
 #   * every mapped structure checked with compare_ordering.py (must be IDENTICAL)
 #   * free energies with a MOCK calorine (Einstein crystal: F_vib checked against the analytic value)
 #   * kill + restart of a chunk, plan --append after raising max_orderings, SLURM scripts run by a fake sbatch
-#     (array split at MaxArraySize, --unfinished, merge dependency), flags for imaginary modes / unconverged relax
+#     (array split at MaxArraySize, --unfinished, merge dependency), flags for imaginary modes / unconverged relax,
+#     rerun rounds, and status on a messy old run (plan --force, FAILED rows, rerun rows, old CSV columns)
 #
 #   bash tests/test_campaign.sh            # from the package root
 set -euo pipefail
@@ -282,6 +283,51 @@ PYEOF
 check_fvib c_rr/free_energy_300K_all.csv
 $PY "$S/rerun_flagged.py" c_rr.toml --dry-run > rr3.log; grep -q "nothing to rerun" rr3.log || { cat rr3.log; echo "round 3 should find nothing"; exit 1; }
 echo "   round 3: nothing left to rerun"
+
+# ---------------------------------------------------------------- 7. status on an old, messy run
+echo "== status: plan --force, FAILED rows, rerun rounds, unplanned structures, old-style CSV columns"
+config c_st POSCAR_2x2x2 "[6, 16, 26]" 4 'walltime = "00:01:00"'
+sed -i 's/fmax = 1e-3/fmax = 1e-7\nsteps = 2/' c_st.toml
+$PY "$S/campaign.py" c_st.toml prepare > /dev/null && $PY "$S/campaign.py" c_st.toml plan > /dev/null
+MOCK_NEP_SOFT=1 $PY "$S/campaign.py" c_st.toml run --chunk 0 > st_run0.log 2>&1         # old plan, chunk 0 only
+sed -i 's/sec_per_structure = .*/sec_per_structure = 3/' c_st.toml
+$PY "$S/campaign.py" c_st.toml plan --force > /dev/null
+n_chunks=$($PY -c "import json;print(len(json.load(open('c_st/chunks/plan.json'))['chunks']))")
+for ((k = 0; k < n_chunks; k++)); do                       # all flagged, composition 26 FAILED
+  MOCK_NEP_SOFT=1 MOCK_NEP_FAIL=26 $PY "$S/campaign.py" c_st.toml run --chunk $k > "st_run_$k.log" 2>&1 || true; done
+$PY "$S/rerun_flagged.py" c_st.toml --same --fmax 1e-3 --steps 2000 --local --jobs 4 > st_rr.log 2>&1
+sed -i 's/max_orderings = 4/max_orderings = 5/' c_st.toml
+$PY "$S/campaign.py" c_st.toml prepare > /dev/null                                     # 3 x 4 new structures
+$PY - <<'PYEOF'                                            # an old-style chunk CSV: no max_force/relax_converged, odd values
+import csv
+p = "c_st/results/chunk_00000.csv"
+rows = list(csv.DictReader(open(p)))
+cols = [c for c in rows[0] if c not in ("max_force_eV_A", "relax_converged")]
+rows[0]["n_imaginary_modes"] = "nan"; rows[1]["time_s"] = ""
+with open(p, "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader(); w.writerows(rows)
+PYEOF
+$PY "$S/campaign.py" c_st.toml status > st1.log; sed 's/^/   /' st1.log
+$PY "$S/campaign.py" c_st.toml plan --append > /dev/null
+$PY "$S/campaign.py" c_st.toml status --json > st2.json
+$PY "$S/campaign.py" c_st.toml merge > /dev/null
+$PY - <<'PYEOF'
+import csv, json
+s = json.load(open("st2.json"))
+rows = list(csv.DictReader(open("c_st/free_energy_300K_all.csv")))
+ok = [r for r in rows if r["status"] == "ok"]
+assert s["ok"] == len(ok) and s["failed"] == len(rows) - len(ok), (s["ok"], s["failed"], len(rows))
+assert s["structures"] == s["ok"] + s["failed"] + s["not_run"] + s["not_planned"], s
+assert s["not_planned"] == 0 and s["not_run"] == 12 and s["failed"] == 16 and s["earlier_plan"] > 0, s
+assert s["flags"]["imaginary"] == 0 and s["flags"]["unconverged"] == 0, s["flags"]     # fixed by the rerun round
+assert s["rerun_rounds"] == [1] and s["chunks"]["only_failed_left"] and s["chunks"]["not_started"], s["chunks"]
+cal = s["sec_per_structure"]
+assert cal["recalibrate"] and cal["n"] <= s["ok"], cal                  # campaign rows only, one per structure
+t1 = open("st1.log").read()
+assert "12 not planned yet" in t1 and "after rerun round 1): 0 with imaginary" in t1 and "set sec_per_structure" in t1, t1
+print(f"   status = merge: {s['ok']} ok, {s['failed']} failed; {s['not_run']} not run; flags 0 after rerun; "
+      f"sec_per_structure from {cal['n']} campaign rows")
+PYEOF
 
 echo
 echo "CAMPAIGN TEST PASSED - outputs in $W"

@@ -17,6 +17,9 @@ class CPUNEP(Calculator):
     def calculate(self, atoms=None, properties=("energy",), system_changes=all_changes):
         super().calculate(atoms, properties, system_changes)
         sym = np.array(self.atoms.get_chemical_symbols())
+        fail = os.environ.get("MOCK_NEP_FAIL")                 # "6" or "6,16": structures with that many Ce fail
+        if fail and str(int((sym == "Ce").sum())) in fail.split(","):
+            raise RuntimeError("mock NEP failure (MOCK_NEP_FAIL)")
         f = self.atoms.get_scaled_positions(wrap=False)
         if self.ref is None or len(self.ref) != len(f):        # wells fixed when first used
             self.ref = f.copy()

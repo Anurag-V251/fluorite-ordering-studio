@@ -1,6 +1,6 @@
-43dd99a4fc4a143e39571ace84681785  CHANGELOG.md
-1d7477e8376f2c9bd4935c634d358e40  README.md
-a7fc4622edf261633968e1b73ca40374  README_scripts.md
+390d77cf43f1484f4f4d0d759a0e56da  CHANGELOG.md
+7af299163211b778700b8fee7a284c34  README.md
+fdb32759ad54957d2203e5c777adb16d  README_scripts.md
 5e80a4771216b32c5df8f6be2c51c028  connect_cluster.sh
 7179a7cf60cd88c557ac2dfe0de1194c  examples/campaign.toml
 4288ff7da6ffbeae79e3fa4d5dfb075f  examples/run_pipeline.sh
@@ -11,7 +11,7 @@ b20426950fedbd2d0a81e9ccc7381a4d  refs/POSCAR_oIII
 3cc5ccb9109da747c08a227a5203b8a6  requirements.txt
 365832ac9c6f4a3f7bb6a6a1bd5cb0a5  scripts/batch_free_energy.py
 a1db4f63957a861cc283db6e02c3c646  scripts/batch_map.py
-30438eea2321d70184ae2d8b39b9861e  scripts/campaign.py
+9061a79dcd2d230ed69b41e00e52a5f6  scripts/campaign.py
 b73f7c33447330263d7bea1d2fa2fec6  scripts/compare_ordering.py
 1b01394dca3e92d09a4fcfdf6d1d98c1  scripts/enumerate_substitutions.py
 5d759f6fc8910ddfe8ab55b8b4621899  scripts/icet_sro.py
@@ -61,7 +61,7 @@ b075a4ed6442366bf4bf8781f7b59d97  studio/modules/tool_xrd.toml
 5073c826cebb290b15fffb09af9b314c  studio/runs.py
 2ad7831398c6249cc655ea9caf2d5f64  studio/scan.py
 082d6060bbbd8a3a51ba546d66d6f12a  studio/server.py
-27f8709a2a346c502b2e6877bc9c727f  studio/state.py
+e86b0eee731c31bf56b8d7ee51c507a4  studio/state.py
 da46c5e3e7245e2fc4b84081aea0d08d  studio/static/app.css
 e070a71fba872fd9cd6f2950cd6e342c  studio/static/core.js
 cff697982f134bf54e32f4a0ac933f00  studio/static/index.html
@@ -75,12 +75,12 @@ fdcfe1b4b8113ed8f5eb867fc74e7089  studio/xrd.py
 6eeacdd1e576ffd3b4050bf925056816  tests/make_test_inputs.py
 49c45ff5e51dc4d0faeaf0dae00c3d0c  tests/make_xrd_mock.py
 b48ef8597d2895b145618bce24a2a0cb  tests/mock_calorine/calorine/__init__.py
-271f1ddf9c73f4d7e276d44ce65eef69  tests/mock_calorine/calorine/calculators.py
+b58cd334b8513465b2ed3d69929d0ee0  tests/mock_calorine/calorine/calculators.py
 398dec137cd43df0e23fe541cfe73efc  tests/mock_calorine/calorine/tools.py
 d1ff64867d9a70dd361d7e0aea911a91  tests/smoke_test.sh
-b320bc841fd198300ba715ca85c5402a  tests/test_campaign.sh
+167ef97d57c570485dc671ceaa207cfc  tests/test_campaign.sh
 56be539002dad4a3e095ec0da953e8ef  tests/test_formation_ref.py
-dbc5242b04797d82f2e2b12c21275bf2  tests/test_studio.py
+b67c98580331a5087d51c2dca2898878  tests/test_studio.py
 c72251571ab0d4e8eb01e0950cba79cf  tests/test_ui.js
 fb0091f00ca1f176ed319242e4c8c03f  tests/test_units.py
 2f666f49dcf2dd47f6cd7e2b9b60277b  tests/test_wc_shell1.py

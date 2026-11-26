@@ -100,21 +100,27 @@ def timing(work: Path, fe, n0, threads, T, max_rows=3000):
     hit = _TIMING.get(str(work))
     if hit and hit[0] == sig:
         return hit[1]
-    best = {}
+    best, camp = {}, {}
     for p in res:
+        rerun = p.name.startswith("chunk_rerun")
         try:
             with p.open(newline="") as f:
                 for r in csv.DictReader(f):
-                    if T is not None and r.get("T_K") not in (None, "") and abs(_f(r["T_K"]) - T) > 1e-6:
-                        continue
                     fn = r.get("file")
-                    if fn and (fn not in best or r.get("status") == "ok" or best[fn][0] != "ok"):
-                        best[fn] = (r.get("status"), _f(r.get("time_s")))
+                    if not fn:
+                        continue
+                    t = _f(r.get("time_s"))
+                    if T is None or r.get("T_K") in (None, "") or abs(_f(r["T_K"]) - T) < 1e-6:
+                        if fn not in best or r.get("status") == "ok" or best[fn][0] != "ok":
+                            best[fn] = (r.get("status"), t)
+                    if r.get("status") == "ok" and not rerun and math.isfinite(t) and t > 0:
+                        camp[fn] = t               # newest campaign row per structure (as campaign.py status)
         except (OSError, csv.Error, UnicodeDecodeError):
             continue
     secs = [t for st, t in best.values() if math.isfinite(t)]
     used_core_h = sum(secs) * max(1, int(threads)) / 3600.0
-    ok = [(fn, t) for fn, (st, t) in best.items() if st == "ok" and math.isfinite(t) and t > 0]
+    # measured cost: campaign rows only (rerun rows use stricter settings), one per structure
+    ok = list(camp.items())
     step = max(1, len(ok) // max_rows)
     meas = []
     for fn, t in ok[::step]:

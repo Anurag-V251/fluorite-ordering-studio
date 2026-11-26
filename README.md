@@ -230,6 +230,13 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 
 * New look and run dashboard (state strip, next step, light/dark). Details and how to revert: `CHANGELOG.md`.
 
+## Changes in 1.2.1
+
+* `campaign.py status` fixed for old and rerun campaigns (see `CHANGELOG.md`): flags now count only the newest
+  row per structure (a structure fixed by `rerun_flagged.py` is no longer reported as flagged), counts match
+  `merge`, measured `sec_per_structure` ignores rerun rows, clearer unfinished-chunk and FAILED lines,
+  old CSVs with missing or odd columns no longer crash. New `status --json`.
+
 ## Changes in 1.2.0
 
 * New **XRD** page and `scripts/xrd_average.py` (also on the Tools page): averaged powder XRD of the structures
