@@ -14,7 +14,7 @@
   S.h = function (tag, attrs, ...kids) {
     const e = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
-      if (v == null || v === false) continue;
+      if (v == null || v === false || (k === "class" && v === "")) continue;
       if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
       else if (k === "html") e.innerHTML = v;
       else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
@@ -31,10 +31,49 @@
   S.dur = (s) => { s = Math.round(s); return s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min " + (s % 60) + " s" : Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min"; };
   S.basename = (p) => String(p).replace(/\/+$/, "").split("/").pop();
   S.dirname = (p) => String(p).replace(/\/[^/]*$/, "") || "/";
-  S.toast = function (msg, ms = 3500) {
-    const t = h("div", {class: "toast"}, msg);
-    document.body.append(t);
+  // icons from the sprite in index.html; pills = icon + text (never colour alone)
+  S.ic = (n, c = "") => `<svg class="ic ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+  S.icon = (n, c = "") => { const t = document.createElement("span"); t.innerHTML = S.ic(n, c); return t.firstChild; };
+  const PILLS = {ok: ["p-ok", "check"], warn: ["p-warn", "alert"], bad: ["p-bad", "xcircle"], run: ["p-run", "spin"],
+    idle: ["p-idle", "circle"], clock: ["p-bad", "clock"], acc: ["p-acc", "pulse"]};
+  S.pill = (kind, text, title) => { const [c, i] = PILLS[kind] || PILLS.idle;
+    return h("span", {class: "pill " + c, title: title || null}, S.icon(i), text); };
+  S.int = (v) => (v == null || !isFinite(v) ? "–" : Math.round(v).toLocaleString("en-US"));
+  S.hms = (s) => { if (s == null || !isFinite(s)) return "–"; s = Math.max(0, Math.round(s));
+    return `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+  S.toast = function (msg, ms = 3800, kind) {
+    const box = document.getElementById("toasts") || document.body;
+    const bad = kind === "bad" || (kind == null && /fail|error|not |refus|missing|wrong|cannot|could not/i.test(String(msg)));
+    const t = h("div", {class: "toast" + (bad ? " bad" : "")}, S.icon(bad ? "alert" : "check"), h("div", {}, msg));
+    box.append(t);
     setTimeout(() => t.remove(), ms);
+  };
+  // a confirm dialog for steps that submit, cancel or replace something.  Resolves true / false.
+  S.confirm = function ({title, body, ok = "Continue", danger = false, icon = "alert"}) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement;
+      const done = (v) => { d.remove(); document.removeEventListener("keydown", key, true); if (prev && prev.focus) prev.focus(); resolve(v); };
+      const okB = h("button", {class: "btn " + (danger ? "danger solid" : "primary"), onclick: () => done(true)}, ok);
+      const noB = h("button", {class: "btn ghost", onclick: () => done(false)}, "Cancel");
+      const d = h("div", {class: "dlg", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "dlgT",
+        onclick: (e) => { if (e.target === d) done(false); }},
+        h("div", {class: "box"}, h("h2", {id: "dlgT"}, S.icon(icon, danger ? "bad" : "warn"), title),
+          h("div", {class: "body"}, body || ""), h("div", {class: "btns"}, noB, okB)));
+      const key = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(false); }
+        if (e.key === "Tab") { e.preventDefault(); (document.activeElement === okB ? noB : okB).focus(); }
+      };
+      document.addEventListener("keydown", key, true);
+      document.body.append(d);
+      setTimeout(() => (danger ? noB : okB).focus(), 30);
+    });
+  };
+  S.setTheme = function (t) {
+    document.documentElement.dataset.theme = t;
+    S.store.set("theme", t);
+    const b = document.getElementById("themeBtn");
+    if (b) { b.innerHTML = S.ic(t === "dark" ? "sun" : "moon"); b.setAttribute("aria-label", t === "dark" ? "Switch to light theme" : "Switch to dark theme"); }
+    window.dispatchEvent(new Event("studio-theme"));
   };
   S.store = {
     get(k, d) { try { const v = localStorage.getItem("fo." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -64,7 +103,7 @@
     const r = await fetch(path, init);
     let j;
     try { j = await r.json(); } catch (e) { j = {ok: false, error: "bad response " + r.status}; }
-    if (!j.ok && !opts.quiet) S.toast(j.error || "request failed");
+    if (!j.ok && !opts.quiet) S.toast(j.error || "request failed", 6000, "bad");
     return j;
   };
   S.fileUrl = (p, dl) => "/api/file?path=" + encodeURIComponent(p) + (dl ? "&download=1" : "");
@@ -80,9 +119,19 @@
     const ids = Object.values(S.pages).sort((a, b) => (a.order || 99) - (b.order || 99)).map((p) => p.id);
     const id = m && S.pages[m[1]] ? m[1] : ids[0];
     const params = Object.fromEntries(new URLSearchParams((m && m[2]) || ""));
+    const page = S.pages[id];
+    const navId = page.navAs ? page.navAs(params) || id : id;
     const nav = document.getElementById("nav");
     nav.innerHTML = "";
-    for (const pid of ids) nav.append(h("a", {href: "#/" + pid, class: pid === id ? "on" : ""}, S.pages[pid].title));
+    for (const pid of ids) {
+      const p = S.pages[pid];
+      if (p.nav === false) continue;
+      const a = h("a", {href: p.href || "#/" + pid, class: pid === navId ? "on" : "", "aria-current": pid === navId ? "page" : null},
+        p.icon ? S.icon(p.icon) : null, p.title);
+      if (pid === "jobs") a.append(S._jobBadge = h("span", {class: "count", style: {display: "none"}}));
+      nav.append(a);
+    }
+    S.updateJobBadge();
     if (S._stop) { S._stop.forEach((f) => f()); }
     S._stop = [];
     const main = document.getElementById("main");
@@ -90,16 +139,33 @@
     // a fresh container per visit: late async output of a page you already left lands in a detached node
     const box = document.createElement("div");
     main.append(box);
-    S.pages[id].render(box, params);
+    page.render(box, params);
+  };
+  S.updateJobBadge = async function () {
+    const r = await S.api("/api/jobs/running", undefined, {quiet: true});
+    const b = S._jobBadge;
+    if (!b || !r.ok) return;
+    b.style.display = r.n ? "" : "none";
+    b.textContent = r.n + " running";
   };
   S.onLeave = (f) => S._stop.push(f);          // pages register timers to stop when leaving
+  // tiny event bus between the parts of a page (cleared when the page is left)
+  S.on = (ev, f) => { const g = (e) => f(e.detail); window.addEventListener("studio:" + ev, g); S.onLeave(() => window.removeEventListener("studio:" + ev, g)); };
+  S.emit = (ev, d) => window.dispatchEvent(new CustomEvent("studio:" + ev, {detail: d}));
   S.every = function (ms, f) { const t = setInterval(f, ms); S.onLeave(() => clearInterval(t)); return t; };
 
   S.boot = async function () {
     const info = await S.api("/api/info");
     if (!info.ok) { document.getElementById("main").textContent = info.error; return; }
     S.info = info;
-    document.getElementById("hostinfo").textContent = info.host + " · v" + info.version;
+    const hi = document.getElementById("hostinfo");
+    hi.innerHTML = "";
+    hi.append(h("span", {class: "dot" + (info.slurm ? "" : " off")}), info.host + " · " + (info.slurm ? "SLURM" : "no SLURM here") + " · v" + info.version);
+    hi.title = info.slurm ? "SLURM commands found: submit, squeue and scancel work from here" :
+      "squeue/sbatch not found on this machine: SLURM scripts can be written, not submitted";
+    const tb = document.getElementById("themeBtn");
+    if (tb) { tb.onclick = () => S.setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); S.setTheme(document.documentElement.dataset.theme || "light"); }
+    setInterval(S.updateJobBadge, 15000);
     await S.loadModules();
     for (const p of info.pages) {
       await new Promise((res) => {

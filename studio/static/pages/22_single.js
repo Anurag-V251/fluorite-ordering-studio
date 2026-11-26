@@ -11,7 +11,7 @@
     slurm: {partition: "", time: "04:00:00", cpus: 8, mem: "", account: "", qos: "", extra: "", setup: "", python: ""}};
   const TASKS = [["relax", "Relax (NEP)"], ["harmonic", "Harmonic free energy"], ["xrd", "XRD"], ["plot", "Plots"]];
 
-  S.registerPage({id: "single", title: "Single runs", order: 22, render});
+  S.registerPage({id: "single", title: "Single runs", order: 22, icon: "flask", render});
 
   function render(main, params) {
     let st = Object.assign({}, DEF, S.store.get("single.state", {}));
@@ -207,7 +207,7 @@
         out.append(h("div", {class: "small"}, "Run folder ", h("a", {href: "javascript:void 0", onclick: () => showResult(r.folder)}, r.folder)));
         if (r.job) out.append(S.jobView(r.job, {title: "Single run", onDone: (j) => {
           out.innerHTML = "";            // the results card below shows the files: keep only a one-line note here
-          out.append(h("div", {class: "small"}, h("span", {class: "pill " + (j.state === "done" ? "ok" : "bad")}, j.state), " ",
+          out.append(h("div", {class: "small"}, S.pill(j.state === "done" ? "ok" : "bad", j.state), " ",
             h("a", {href: "javascript:void 0", onclick: () => showResult(r.folder)}, S.basename(r.folder)), " · ",
             h("a", {href: "#/jobs?id=" + r.job}, "log in Jobs")));
           drawRuns(); showResult(r.folder);
@@ -267,7 +267,7 @@
       runsCard.innerHTML = "";
       runsCard.append(h("h2", {}, "Single runs in ", h("span", {class: "mono small"}, r.base || st.base)));
       if (!r.ok || !r.runs.length) { runsCard.append(h("div", {class: "muted small"}, "None yet.")); return; }
-      const pill = (s) => h("span", {class: "pill " + ({done: "ok", done_with_errors: "warn", running: "run", written: "warn"}[s] || "run")}, s.replace(/_/g, " "));
+      const pill = (s) => S.pill({done: "ok", done_with_errors: "warn", running: "run", written: "idle"}[s] || "run", s.replace(/_/g, " "));
       runsCard.append(h("div", {class: "tablewrap", style: {maxHeight: "300px"}}, h("table", {},
         h("thead", {}, h("tr", {}, ["run", "created", "structures", "tasks", "state"].map((x) => h("th", {class: "l"}, x)))),
         h("tbody", {}, r.runs.map((x) => h("tr", {},

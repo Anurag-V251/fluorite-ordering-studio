@@ -1,7 +1,7 @@
 /* Modules page: what is registered, where it comes from, and how to add or replace a part. */
 (function () {
   const S = Studio, h = S.h;
-  S.registerPage({id: "modules", title: "Modules", order: 90, render});
+  S.registerPage({id: "modules", title: "Modules", order: 90, icon: "layers", render});
 
   async function render(main) {
     await S.loadModules();

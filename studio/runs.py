@@ -31,7 +31,7 @@ except ModuleNotFoundError:                     # Python < 3.11
     except ModuleNotFoundError:
         sys.exit("Python < 3.11 needs the package tomli:  pip install tomli")
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {   # same keys as campaign.py DEFAULTS (values are the app's start values); only these are written
@@ -404,13 +404,45 @@ def find_runs(base: Path, depth=2):
     return out
 
 
+def _campaign_toml(p):
+    try:
+        with Path(p).open("rb") as f:
+            c = tomllib.load(f)
+        return c if isinstance(c, dict) and "structure" in c and "mapping" in c else None
+    except Exception:                           # noqa: BLE001
+        return None
+
+
+def find_config(folder):
+    """the campaign config of a run folder, a config file itself, or a WORKDIR (campaign_config.toml inside):
+    then the config next to it in the parent folder whose [paths] workdir is this folder (runs made without the app)"""
+    folder = Path(folder).expanduser().resolve()
+    if folder.is_file():
+        return folder if _campaign_toml(folder) else None
+    if (folder / "campaign.toml").is_file():
+        return folder / "campaign.toml"
+    if (folder / "campaign_config.toml").is_file():         # a workdir: look for the config that made it
+        for p in sorted(folder.parent.glob("*.toml")):
+            c = _campaign_toml(p)
+            if c and (folder.parent / c.get("paths", {}).get("workdir", "campaign")).resolve() == folder:
+                return p
+    tom = [p for p in sorted(folder.glob("*.toml")) if p.name != "campaign_config.toml"]
+    for p in tom:                                            # a campaign config whose workdir exists first
+        c = _campaign_toml(p)
+        if c and (folder / c.get("paths", {}).get("workdir", "campaign")).is_dir():
+            return p
+    good = [p for p in tom if _campaign_toml(p)]
+    return good[0] if good else (tom[0] if tom else None)
+
+
 def read_run(folder):
     folder = Path(folder).expanduser().resolve()
+    cp = find_config(folder)
+    if cp is not None:
+        folder = cp.parent
+    elif folder.is_file():
+        folder = folder.parent
     info = {"folder": str(folder), "config_path": None, "record": None, "config": None}
-    cp = folder / "campaign.toml"
-    if not cp.is_file():
-        tom = sorted(folder.glob("*.toml"))
-        cp = tom[0] if tom else None
     if cp:
         info["config_path"] = str(cp)
         try:

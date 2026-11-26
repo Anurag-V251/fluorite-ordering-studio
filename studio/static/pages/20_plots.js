@@ -85,6 +85,6 @@
     }
   };
 
-  S.registerPage({id: "plots", title: "Plots", order: 20, render: (main, p) => S.moduleRunner(main, "plot", p, "Plots")});
-  S.registerPage({id: "tools", title: "Tools", order: 50, render: (main, p) => S.moduleRunner(main, "tool", p, "Tools")});
+  S.registerPage({id: "plots", title: "Plots", order: 40, icon: "chart", render: (main, p) => S.moduleRunner(main, "plot", p, "Plots")});
+  S.registerPage({id: "tools", title: "Tools", order: 50, icon: "tool", render: (main, p) => S.moduleRunner(main, "tool", p, "Tools")});
 })();

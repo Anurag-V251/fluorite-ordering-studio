@@ -72,6 +72,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await p.screenshot({path: path.join(W, "ui_single_form.png"), fullPage: true});
     await p.locator("button.primary", {hasText: /^Run$/}).click();
     await p.waitForSelector("text=Summary", {timeout: 180000});
+    // the summary table fills in after the heading (slow under load): wait for it, then count
+    await p.waitForSelector("h3:has-text('Summary') + .tablewrap tbody tr", {timeout: 30000}).catch(() => {});
     const rows = await p.locator("h3:has-text('Summary') + .tablewrap tbody tr").count();
     check(rows === 3, `summary table: ${rows} rows`);
     await p.waitForSelector("iframe.view, img.view", {timeout: 10000});
