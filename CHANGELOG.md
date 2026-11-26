@@ -1,6 +1,6 @@
 # Changelog
 
-Every release is a git tag (`v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
+Every release is a git tag (`v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
 commits are kept, so `git log` shows what changed and when.
 
 ## How to go back to an earlier version
@@ -23,6 +23,42 @@ git push
 Run folders keep their own frozen copy of the scripts, so going back never changes a finished run.
 To use a new `campaign.py` in an old run folder, copy it into `<run>/scripts/` (the old copy can be put back the
 same way). Single runs freeze their scripts the same way (`<single run>/scripts/`).
+
+## 1.5.0 (2026-11-26) - run dashboard: pipeline, side panel, attention, jobs, settings (GUI redesign, phase 2 of 3)
+
+* **Pipeline**: the 7 stages as one row with a live state each (pill with icon + word, short facts, chunk bar on
+  Compute). Clicking a stage opens a **side panel**: facts for that stage, where to run it (here / submit to SLURM /
+  write the script only), its options, the **equivalent command** (updates while you change options) and, after
+  Run, its output. Escape or the scrim closes it. The old stage cards are gone.
+* **Plan** has three explicit choices instead of check boxes: *First plan*, *Add new structures* (`--append`) and
+  *Re-pack unfinished* (`--force`). Once a plan exists the default is *Add new structures*. Re-pack asks first and
+  is **refused while a compute job of this run runs** (here or on SLURM), in the page and in the server.
+* **Compute on SLURM** submits only unfinished chunks by default (`--unfinished` ticked; also the server default
+  when a caller leaves it out).
+* **Rerun flagged** options on the page: which flags (`--what`), imaginary window (`--freq-window`), `--same`,
+  `--fmax`, `--steps`, `--start`, and for SLURM `--nodes` and `--walltime`.
+* **Confirmations** before every SLURM submission, re-pack, Stop of a job and `scancel` (also on the Jobs page).
+* **Attention** list: recovery actions in the order to do them (re-plan with the measured time before resubmitting,
+  rerun flagged after compute, inspect failures, merge last), one button each, blocked ones say why.
+* **Cluster settings** after creation: edit `[cluster]` (walltime, cores, sec_per_structure, partition, setup ...)
+  from the page, or apply the measured sec_per_structure with one button. The old file is kept as
+  `campaign.<time>.bak`, campaign.toml gets a comment line, run_record.json gets the new values, the new md5 and a
+  history entry with every old → new value. Physics settings still need *Copy to new run*.
+  New endpoints `POST /api/runs/settings`, `POST /api/runs/adopt`.
+* **Runs made without the app**: *Keep a history* writes run_record.json next to their config (nothing else
+  changes), so settings changes and stages are recorded from then on.
+* **Jobs** panel of the run: the app's jobs (a SLURM submission shows "submitted N tasks · M active" with the live
+  squeue state, not "done") and every SLURM task the app submitted: chunk, structures done, walltime used with the
+  projected end (red when it will not fit), node; `scancel` per submission.
+* **Log drawer** at the bottom: the newest job of the run (or one you pick), level filter All / Info / Warn / Error,
+  remembers open / closed.
+* Module files: new option keys `default`, `help`, `choices`, `kind = "choice"`, `confirm` (see `studio/modules.py`).
+  Old module files keep working.
+* Tests: test_studio.py (SLURM compute defaults to --unfinished and asks first, re-pack refused while compute runs,
+  bad choices refused, rerun options reach rerun_flagged.py, settings change + backup + history + md5, physics and
+  bad walltime refused, adopting a run), test_ui.js (every stage from its side panel, re-pack confirmation,
+  rerun options, log drawer, editing settings, applying the measured time).
+* Revert: `git checkout v1.4.0` (or `git revert -m 1 <merge commit of the 1.5.0 PR>`).
 
 ## 1.4.0 (2026-11-26) - new look, app shell and run dashboard (GUI redesign, phase 1 of 3)
 

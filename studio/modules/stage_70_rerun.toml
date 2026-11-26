@@ -1,7 +1,7 @@
 id = "rerun_flagged"
 kind = "stage"
 title = "Rerun flagged rows"
-description = "Recompute rows with imaginary modes and/or unconverged relaxation (default: fmax/10, steps x10, min_length+5). One round per call; merge afterwards."
+description = "Recompute rows with imaginary modes and/or an unconverged relaxation (default: fmax/10, steps x10, min_length+5). One round per call; the newest row of a structure wins in merge."
 order = 70
 script = "rerun_flagged.py"
 [modes.dry]
@@ -13,15 +13,53 @@ cmd = ["{python}", "{scripts}/rerun_flagged.py", "{config}", "--local"]
 [modes.slurm]
 label = "Submit SLURM (+ merge job)"
 cmd = ["{python}", "{scripts}/rerun_flagged.py", "{config}", "--submit"]
+confirm = "Submit the rerun array (and a merge job after it) to SLURM?"
 [[options]]
 flag = "--what"
-label = "which flags: both | imaginary | unconverged"
+label = "which flags"
 value = true
+choices = ["both", "imaginary", "unconverged"]
+default = "both"
+help = "imaginary = phonon modes below zero; unconverged = relaxation did not reach fmax within steps"
+[[options]]
+flag = "--freq-window"
+label = "imaginary window LO HI (THz)"
+value = true
+help = "only rows whose lowest frequency is in [LO, HI], e.g. -0.5 0 for the weak ones; empty = all"
 [[options]]
 flag = "--same"
 label = "same settings as the config (not stricter)"
 value = false
 [[options]]
+flag = "--fmax"
+label = "fmax (eV/Å)"
+value = true
+help = "empty = config fmax / 10 (config value with 'same settings')"
+[[options]]
+flag = "--steps"
+label = "max relaxation steps"
+value = true
+help = "empty = config steps x 10"
+[[options]]
+flag = "--start"
+label = "start from"
+value = true
+choices = ["relaxed", "original"]
+default = "relaxed"
+help = "the newest relaxed geometry, or the unrelaxed input"
+[[options]]
+flag = "--nodes"
+label = "array tasks (nodes)"
+value = true
+modes = ["slurm"]
+help = "split the rerun over this many tasks; empty = 1"
+[[options]]
+flag = "--walltime"
+label = "walltime per task"
+value = true
+modes = ["slurm"]
+help = "HH:MM:SS; empty = the [cluster] walltime"
+[[options]]
 flag = ""
-label = "more arguments (e.g. --freq-window -0.5 0 --nodes 4)"
+label = "more arguments (e.g. --min-length 20 --mesh 30)"
 value = true

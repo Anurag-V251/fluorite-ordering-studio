@@ -32,6 +32,13 @@ Module file (all keys except id / kind / title optional):
   [[options]]    flag = "--unfinished"  label = "..."  value = false  modes = ["slurm"]
                  (value = false: a check box; value = true: a text field whose words follow the flag;
                   flag = "" with value = true: free arguments)
+                 default = true / "text"   start value (also used when a caller leaves the option out)
+                 help = "..."              one line under the option
+                 choices = ["a", "b"]      with value = true: a drop-down, the word must be one of them
+                 kind = "choice", key = "name", [[options.choices]] flag = "--x" label = "..." help = "..."
+                     radio buttons: exactly one flag of the list ("" = none); a choice may have
+                     confirm = "..." (asked before it runs) and block_if_compute_running = true
+  [modes.X] confirm = "..."     asked before this mode runs (e.g. SLURM submissions)
   Placeholders: {python} {scripts} {config} {workdir} {rundir} {studio}
 """
 from __future__ import annotations
@@ -112,6 +119,11 @@ def load_modules():
             m.setdefault("watch", ["input_dir"])
             mods[mid] = m
     return dict(sorted(mods.items(), key=lambda kv: (kv[1]["kind"], kv[1]["order"], kv[0]))), errors
+
+
+def option_key(o):
+    """the name a stage option has in the page's options dict"""
+    return o.get("key") or o.get("flag") or "__free__"
 
 
 def script_path(mod, scripts: Path):

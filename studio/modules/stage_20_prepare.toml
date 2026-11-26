@@ -9,6 +9,7 @@ cmd = ["{python}", "{scripts}/campaign.py", "{config}", "prepare"]
 [modes.slurm]
 label = "Submit SLURM array"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "prepare", "--submit"]
+confirm = "Submit the prepare array to SLURM?"
 [modes.slurm_write]
 label = "Write SLURM script only"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "prepare"]

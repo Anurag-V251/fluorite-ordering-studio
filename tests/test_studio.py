@@ -287,10 +287,24 @@ def run_tests(api, env):
     cfg = runs["run_c222"]
     j = stage(api, cfg, "compute", "slurm_write", {"--unfinished": False})
     check((Path(cfg).parent / "campaign" / "slurm" / "compute.sh").is_file(), "compute.sh written")
-    j = stage(api, cfg, "compute", "slurm", {"--with-merge": True})
+    pv = api.post("/api/stage", {"module": "compute", "mode": "slurm", "config": cfg, "options": {}, "preview": True})
+    check(pv["ok"] and "--unfinished" in pv["cmd"] and pv["confirm"], f"SLURM compute: --unfinished by default, asks first: {pv['cmd'][-40:]}")
+    j = stage(api, cfg, "compute", "slurm", {"--unfinished": False, "--with-merge": True})
     check(len(j["slurm_ids"]) >= 2, f"submitted job ids picked up: {j['slurm_ids']}")
     sh = (Path(cfg).parent / "campaign" / "slurm" / "compute.sh").read_text()
     check("RAYON_NUM_THREADS=1" in sh and "/scripts/campaign.py" in sh, "SLURM script uses the setup lines and the run's frozen scripts")
+    code, rr = api.call("/api/stage", {"module": "plan", "mode": "local", "config": cfg, "options": {"plan_mode": "--bogus"}, "preview": True})
+    check(code == 400, "plan: a choice outside the list is refused")
+    code, rr = api.call("/api/stage", {"module": "rerun_flagged", "mode": "dry", "config": cfg, "options": {"--what": "everything"}, "preview": True})
+    check(code == 400, "rerun: --what outside both|imaginary|unconverged refused")
+    pv = api.post("/api/stage", {"module": "rerun_flagged", "mode": "slurm", "config": cfg, "preview": True,
+                                 "options": {"--what": "imaginary", "--freq-window": "-0.5 0", "--fmax": "0.001", "--steps": "4000",
+                                             "--start": "original", "--nodes": "4", "--walltime": "02:00:00"}})
+    check(pv["ok"] and all(x in pv["cmd"] for x in ("--what imaginary", "--freq-window -0.5 0", "--fmax 0.001", "--steps 4000",
+                                                    "--start original", "--nodes 4", "--walltime 02:00:00")) and pv["confirm"],
+          "rerun options reach rerun_flagged.py: " + pv["cmd"].split("rerun_flagged.py", 1)[-1])
+    pv = api.post("/api/stage", {"module": "rerun_flagged", "mode": "local", "config": cfg, "preview": True, "options": {"--nodes": "4"}})
+    check("--nodes" not in pv["cmd"] and "--what" not in pv["cmd"], "SLURM-only rerun options left out when running here; defaults not repeated")
     j = stage(api, cfg, "rerun_flagged", "dry")
     check("rerun" in j.get("log", "").lower() or "flagged" in j.get("log", "").lower(), "rerun_flagged dry-run ran")
 
@@ -324,6 +338,12 @@ def run_tests(api, env):
     check(st["compute_running"] and [x for x in st["stages"] if x["key"] == "compute"][0]["state"] == "running",
           "compute shown as running while its SLURM task runs")
     check(st["next"]["action"].get("go") == "jobs", f"next step while running: {st['next']['what']}")
+    pv = api.post("/api/stage", {"module": "plan", "mode": "local", "config": cfg, "options": {"plan_mode": "--force"}, "preview": True})
+    check(pv["ok"] and pv["blocked"] and "--force" in pv["cmd"] and pv["confirm"], f"re-pack refused while compute runs: {pv.get('blocked')}")
+    code, rr = api.call("/api/stage", {"module": "plan", "mode": "local", "config": cfg, "options": {"plan_mode": "--force"}})
+    check(code == 400 and "compute" in rr.get("error", ""), f"POST plan --force refused while compute runs ({code})")
+    pv = api.post("/api/stage", {"module": "plan", "mode": "local", "config": cfg, "options": {"plan_mode": "--append"}, "preview": True})
+    check(pv["ok"] and not pv["blocked"] and pv["cmd"].endswith("plan --append"), "plan --append allowed while compute runs")
     for f in ("squeue", "sacct"):
         (W / "bin" / f).unlink()
     # an unfinished chunk + a measured time far from the plan -> re-plan first, then resubmit
@@ -357,6 +377,33 @@ def run_tests(api, env):
     check(c["ok"] and not c["identical"] and any(d["file"].endswith("nep.txt") for d in c["differences"]), "changed NEP file reported")
     rd = api.get("/api/runs/read?folder=" + str(W / "run_t222"))
     check(rd["ok"] and len(rd["record"]["history"]) >= 6, f"history of {len(rd['record']['history'])} commands in run_record.json")
+
+    print("== cluster settings after creation, adopting a run made without the app")
+    tom = Path(cfg_t)
+    r = api.post("/api/runs/settings", {"config": cfg_t, "changes": {"cluster": {"walltime": "00:20:00", "sec_per_structure": "0.6"}},
+                                        "note": "test"})
+    txt = tom.read_text()
+    check(r.get("ok") and set(r["changed"]) == {"cluster.walltime", "cluster.sec_per_structure"} and "00:20:00" in txt,
+          f"settings changed: {r.get('changed')}")
+    check(r.get("backup") and (tom.parent / r["backup"]).is_file() and "00:10:00" in (tom.parent / r["backup"]).read_text(), "old campaign.toml kept as .bak")
+    rd = api.get("/api/runs/read?folder=" + str(tom.parent))
+    h = rd["record"]["history"][-1]
+    check(h.get("event") == "settings changed" and h["changes"]["cluster.walltime"] == ["00:10:00", "00:20:00"] and
+          rd["record"]["config"]["cluster"]["sec_per_structure"] == 0.6, f"history entry: {h}")
+    c = api.get("/api/runs/check?folder=" + str(tom.parent))
+    check(not any(d["file"] == "campaign.toml" for d in c["differences"]), "record md5 follows the changed campaign.toml")
+    code, rr = api.call("/api/runs/settings", {"config": cfg_t, "changes": {"free_energy": {"T": 500}}})
+    check(code == 400 and "cannot be changed" in rr.get("error", ""), "physics settings cannot change after creation")
+    code, rr = api.call("/api/runs/settings", {"config": cfg_t, "changes": {"cluster": {"walltime": "ten hours"}}})
+    check(code == 400 and "walltime" in rr.get("error", ""), f"bad walltime refused: {rr.get('error')}")
+    st = api.get("/api/run/state?fresh=1&config=" + cfg_t)
+    check(st["cluster"]["walltime"] == "00:20:00", "state shows the new walltime")
+    ad = W / "adopt_me"
+    shutil.rmtree(ad, ignore_errors=True); ad.mkdir()
+    (ad / "campaign.toml").write_text(txt)
+    r = api.post("/api/runs/adopt", {"config": str(ad / "campaign.toml")})
+    check(r.get("ok") and (ad / "run_record.json").is_file() and r["record"]["history"][0]["event"] == "adopted by the app",
+          "a run made without the app gets run_record.json (adopted)")
 
     print("== input validation, double launch, stop")
     base = {"structure": {"poscar": str(W / "POSCAR_c_1x1x2"), "compositions": "0 4 8", "max_orderings": 2},

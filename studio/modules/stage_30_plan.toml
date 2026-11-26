@@ -1,20 +1,32 @@
 id = "plan"
 kind = "stage"
 title = "Plan chunks"
-description = "Packs all prepared structures into chunks that fill one node for one walltime (cost model in campaign.py)."
+description = "Packs the prepared structures into chunks that fill one node for one walltime (cost model in campaign.py, scaled by sec_per_structure)."
 order = 30
 [modes.local]
-label = "Run"
+label = "Plan"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "plan"]
+[[options]]
+kind = "choice"
+key = "plan_mode"
+label = "What to do"
+default = ""
+[[options.choices]]
+flag = ""
+label = "First plan"
+help = "No plan yet: pack every prepared structure into chunks."
+[[options.choices]]
+flag = "--append"
+label = "Add new structures"
+help = "Structures prepared after the plan become new chunks. Planned chunks and their results are not touched."
+[[options.choices]]
+flag = "--force"
+label = "Re-pack unfinished"
+help = "After changing sec_per_structure (or the walltime): the plan is made again. Finished results are kept and skipped. No compute job of this run may be running."
+confirm = "Re-pack the chunks? The chunk ids change, so wait for (or cancel) every compute job of this run first. Finished results are kept."
+block_if_compute_running = true
 [[options]]
 flag = "--partial"
 label = "plan only the compositions prepared so far"
 value = false
-[[options]]
-flag = "--append"
-label = "append: add structures not planned yet"
-value = false
-[[options]]
-flag = "--force"
-label = "force: re-plan (no compute job may be running; finished results are kept)"
-value = false
+help = "Use while prepare is still running; add the rest later with 'Add new structures'."

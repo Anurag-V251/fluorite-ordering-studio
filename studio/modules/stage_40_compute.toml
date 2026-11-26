@@ -9,6 +9,7 @@ cmd = ["{python}", "{studio}/helpers/run_chunks.py", "{config}"]
 [modes.slurm]
 label = "Submit SLURM array"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "compute", "--submit"]
+confirm = "Submit the compute array to SLURM? This uses core-hours on the cluster."
 [modes.slurm_write]
 label = "Write SLURM script only"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "compute"]
@@ -16,7 +17,9 @@ cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "compute"]
 flag = "--unfinished"
 label = "only unfinished chunks"
 value = false
+default = true
 modes = ["slurm", "slurm_write"]
+help = "Chunks whose structures are all done are left out. Untick only to submit every chunk again (finished structures are still skipped inside a chunk)."
 [[options]]
 flag = "--with-merge"
 label = "submit a merge job after the array"

@@ -31,7 +31,7 @@ except ModuleNotFoundError:                     # Python < 3.11
     except ModuleNotFoundError:
         sys.exit("Python < 3.11 needs the package tomli:  pip install tomli")
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {   # same keys as campaign.py DEFAULTS (values are the app's start values); only these are written
@@ -512,3 +512,124 @@ def add_history(folder, entry):
             return
         rec.setdefault("history", []).append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), **entry})
         _write_record(rp, rec)
+
+
+# ---------------------------------------------------------------------- after creation: settings, adopting old runs
+EDITABLE = {"cluster": list(DEFAULTS["cluster"])}   # what may change after creation (not physics, not inputs)
+
+
+def _cast(sec, k, v):
+    dv = DEFAULTS[sec][k]
+    if isinstance(dv, bool):
+        return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+    if isinstance(dv, int):
+        sv = str(v).strip()
+        if not re.fullmatch(r"-?\d+(\.0*)?", sv):
+            raise ValueError(f"[{sec}] {k} = {v!r} is not a whole number")
+        return int(float(sv))
+    if isinstance(dv, float):
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"[{sec}] {k} = {v!r} is not a number")
+        import math
+        if not math.isfinite(x):
+            raise ValueError(f"[{sec}] {k} = {v}: not a finite number")
+        return x
+    if isinstance(dv, list):
+        return [x for x in (v if isinstance(v, list) else re.split(r"\n+", str(v).strip())) if str(x).strip()]
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(v))
+
+
+def _toml_header(text):
+    head = []
+    for line in text.split("\n"):
+        if line.startswith("#") or not line.strip():
+            head.append(line)
+        else:
+            break
+    return "\n".join(head).strip()
+
+
+def adopt_run(config_path):
+    """write run_record.json for a run folder made without the app (inputs are not copied, scripts not frozen),
+    so settings changes and commands get a history.  Returns the record."""
+    cp = Path(config_path).expanduser().resolve()
+    folder = cp.parent
+    rp = folder / "run_record.json"
+    if rp.is_file():
+        return json.loads(rp.read_text(encoding="utf-8"))
+    with cp.open("rb") as f:
+        cfg = tomllib.load(f)
+    inputs = {}
+    s, m, fe = cfg.get("structure", {}), cfg.get("mapping", {}), cfg.get("free_energy", {})
+    paths = [s.get("poscar")] + [split_template(t)[1] for t in (m.get("templates") or [])] + [fe.get("nep")]
+    for p in paths:
+        if p and (folder / p).is_file():
+            inputs[str(p)] = {"source": str((folder / p).resolve()), "md5": md5(folder / p)}
+    sp = cfg.get("paths", {}).get("scripts")
+    sdir = (folder / sp).resolve() if sp else None
+    rec = {"app": "fluorite-ordering-studio", "app_version": APP_VERSION, "adopted": True,
+           "created": time.strftime("%Y-%m-%d %H:%M:%S"), "user": _user(), "host": socket.gethostname(),
+           "name": folder.name, "starting_phase": "", "notes": "made without the app; adopted (inputs not copied)",
+           "config": cfg, "inputs": inputs,
+           "scripts": {p.name: md5(p) for p in sorted(sdir.glob("*.py"))} if sdir and sdir.is_dir() else {},
+           "scripts_folder": sp or "", "campaign_toml_md5": md5(cp), "config_file": cp.name,
+           "versions": versions(), "history": [{"time": time.strftime("%Y-%m-%d %H:%M:%S"), "event": "adopted by the app"}]}
+    with RECORD_LOCK:
+        _write_record(rp, rec)
+    return rec
+
+
+def update_settings(config_path, changes, note=""):
+    """change [cluster] keys of a run's config after creation.  The old file is kept as <name>.<time>.bak, the
+    record gets the new config, the new md5 and a history entry with every old -> new value."""
+    cp = Path(config_path).expanduser().resolve()
+    text = cp.read_text(encoding="utf-8")
+    raw = tomllib.loads(text)
+    done = {}
+    for sec, d in (changes or {}).items():
+        if sec not in EDITABLE or not isinstance(d, dict):
+            raise ValueError(f"[{sec}] cannot be changed after creation (only {', '.join(EDITABLE)}); "
+                             "use 'Copy to new run' for other settings")
+        for k, v in d.items():
+            if k not in EDITABLE[sec]:
+                raise ValueError(f"[{sec}] {k}: unknown setting")
+            new = _cast(sec, k, v)
+            old = raw.get(sec, {}).get(k, DEFAULTS[sec][k])
+            if new != old:
+                raw.setdefault(sec, {})[k] = new
+                done[f"{sec}.{k}"] = [old, new]
+    if not done:
+        return {"changed": {}}
+    cl = raw.get("cluster", {})
+    for k in ("walltime", "prepare_walltime", "merge_walltime"):
+        w = cl.get(k)
+        if w not in (None, "") and not re.fullmatch(r"(\d+-)?\d+(:\d+){0,2}", str(w)):
+            raise ValueError(f"{k} {w!r}: use HH:MM:SS or D-HH:MM:SS")
+    for k in ("sec_per_structure", "fill", "cores_per_node", "max_array", "max_concurrent"):
+        if k in cl and not float(cl[k]) > 0:
+            raise ValueError(f"{k} must be positive")
+    if "fill" in cl and float(cl["fill"]) > 1:
+        raise ValueError("fill is a fraction of the walltime (0-1]")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(cp, cp.with_name(f"{cp.stem}.{stamp}.bak"))
+    hdr = _toml_header(text) + f"\n# settings changed in the app on {time.strftime('%Y-%m-%d %H:%M:%S')}: " + \
+        ", ".join(f"{k} {o} -> {n}" for k, (o, n) in done.items())[:400]
+    tmp = cp.with_name(cp.name + ".tmp")
+    tmp.write_text(to_toml(raw, hdr), encoding="utf-8")
+    tomllib.loads(tmp.read_text(encoding="utf-8"))       # parses back, or nothing is replaced
+    import os
+    os.replace(tmp, cp)
+    rp = cp.parent / "run_record.json"
+    if not rp.is_file():
+        adopt_run(cp)
+    with RECORD_LOCK:
+        rec = json.loads(rp.read_text(encoding="utf-8"))
+        rec.setdefault("config", {}).setdefault("cluster", {}).update(
+            {k.split(".", 1)[1]: n for k, (o, n) in done.items() if k.startswith("cluster.")})
+        rec["campaign_toml_md5"] = md5(cp)
+        rec.setdefault("history", []).append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "event": "settings changed",
+                                              "changes": done, "note": str(note)[:300], "backup": f"{cp.stem}.{stamp}.bak"})
+        _write_record(rp, rec)
+    return {"changed": done, "backup": f"{cp.stem}.{stamp}.bak"}

@@ -203,16 +203,34 @@
     if (!r.ok) { main.append(h("div", {class: "notice bad"}, r.error), h("a", {href: "#/pipeline?list=1"}, "all runs")); return; }
     const rec = r.record;
     S.currentRun = r;
+    const D = S.dash;
     const head = h("div", {class: "runhead"});
     const strip = h("div", {class: "card strip"}, h("div", {class: "left"}, "reading the run…"), h("div", {class: "next"}));
     const warnBox = h("div", {});
     const repro = h("div", {});
-    main.append(head, warnBox, strip);
-    let st = null, polled = 0;
+    const pipe = h("div", {});
+    const attBox = h("div", {}), setBox = h("div", {});
+    const jobsBox = h("div", {});
+    main.append(head, warnBox, strip, repro, pipe, h("div", {class: "grid g-main"}, attBox, setBox), jobsBox);
+    let st = null, polled = 0, active = null;
     const pollAgo = h("span", {class: "muted num"});
+    const openStage = (key, preset) => {
+      if (!st) return;
+      active = key; drawPipe();
+      D.openStage(key, st, r, preset, {refresh: () => poll(true), onclose: () => { active = null; drawPipe(); }});
+    };
+    const drawPipe = () => { if (st) { pipe.innerHTML = ""; pipe.append(D.pipeline(st, active, (k) => openStage(k))); } };
     const draw = () => {
       drawHead(head, r, st, pollAgo, poll, repro);
-      if (st) { drawStrip(strip, st, r); warnBox.innerHTML = ""; (st.warnings || []).forEach((w) => warnBox.append(h("div", {class: "notice warn"}, w))); }
+      if (st) {
+        drawStrip(strip, st, r); warnBox.innerHTML = "";
+        (st.warnings || []).forEach((w) => warnBox.append(h("div", {class: "notice warn"}, w)));
+        drawPipe();
+        attBox.innerHTML = ""; attBox.append(D.attention(st));
+        setBox.innerHTML = ""; setBox.append(D.settings(st, r, () => poll(true)));
+        jobsBox.innerHTML = ""; jobsBox.append(D.jobs(st, () => poll(true)));
+        D.drawer.setJobs(st.jobs || []);
+      }
       S.emit("run-state", st);
     };
     async function poll(fresh) {
@@ -221,30 +239,19 @@
       st = s2; polled = Date.now(); S.runState = st; draw();
     }
     S.every(1000, () => { pollAgo.textContent = polled ? Math.round((Date.now() - polled) / 1000) + " s" : ""; });
-    S.every(15000, () => poll(false));
+    S.every(5000, () => {                          // every 5 s while something runs, else every 15 s
+      const busy = st && ((st.running || []).length || st.compute_running);
+      if (busy || Date.now() - polled > 15000) poll(false);
+    });
+    S.on("open-stage", (act) => openStage(Object.keys(D.STAGE_MOD).find((k) => k === act.panel) || act.panel, act.preset));
+    S.on("show-attention", () => { const a = document.getElementById("attention"); if (a) { a.scrollIntoView({block: "center", behavior: "smooth"}); const b = a.querySelector("button"); if (b) b.focus(); } });
+    S.on("stage-started", () => setTimeout(() => poll(true), 600));
     draw();
     await poll(false);
-    main.append(repro);
-
-    // the stages (cards with their options; the next version shows them as a pipeline with a side panel)
-    const stages = S.mods("stage");
-    const jobs = h("div", {});
-    const grid = h("div", {style: {display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: "0 14px"}});
-    stages.forEach((m, i) => grid.append(stageCard(m, r, jobs, i + 1)));
-    const clear = h("button", {class: "btn sm", onclick: () => { jobs.innerHTML = ""; }}, "Clear finished cards");
-    main.append(h("div", {class: "card-h", style: {padding: "4px 0 10px"}}, h("h2", {}, "Stages"),
-        h("span", {class: "sub"}, "Run here, write the SLURM scripts, or submit them. Every stage keeps the equivalent command.")),
-      grid, h("div", {class: "row", style: {margin: "0 0 8px"}}, h("b", {}, "Output of the stages started here (newest first)"), clear),
-      h("div", {}, h("div", {}, jobs,
-      rec && rec.history && rec.history.length ? h("details", {class: "card"}, h("summary", {}, `History (${rec.history.length})`),
-        h("pre", {class: "log"}, rec.history.slice().reverse().map((x) => `${x.time}  ${x.stage || x.event || ""} [${x.mode || ""}]  ${x.cmd || ""}`).join("\n"))) : null,
-      h("details", {class: "card"}, h("summary", {}, "campaign.toml"), (() => { const p = h("pre", {class: "log"}); S.api("/api/text?path=" + encodeURIComponent(r.config_path)).then((t) => { p.textContent = t.text; }); return p; })()))));
-    S.on("stage-started", () => poll(true));
-    // stages of this run still running (started before a reload, or in another tab): show them again
-    const jl = await S.api("/api/jobs", undefined, {quiet: true});
-    if (jl.ok) for (const j of jl.jobs.filter((j) => ["running", "starting"].includes(j.state) && (j.meta || {}).config === r.config_path).reverse())
-      jobs.prepend(S.jobView(j.id, {title: j.title, onDone: () => poll(true)}));
-    if (!jobs.childElementCount) jobs.append(h("div", {class: "card muted"}, "Start a stage above. Its log and output appear here. Order: dry-run → prepare → plan → compute → status → merge → (rerun flagged → merge)."));
+    main.append(h("div", {}, rec && rec.history && rec.history.length ? h("details", {class: "card"}, h("summary", {}, `History (${rec.history.length})`),
+        h("pre", {class: "log"}, rec.history.slice().reverse().map((x) => `${x.time}  ${x.stage || x.event || ""}` + (x.mode ? ` [${x.mode}]` : "") + `  ${x.cmd || ""}` +
+          (x.changes ? Object.entries(x.changes).map(([k, v]) => `${k}: ${v[0]} -> ${v[1]}`).join(", ") + (x.note ? `  (${x.note})` : "") : "")).join("\n"))) : null,
+      h("details", {class: "card"}, h("summary", {}, S.basename(r.config_path)), (() => { const p = h("pre", {class: "log"}); S.api("/api/text?path=" + encodeURIComponent(r.config_path)).then((t) => { p.textContent = t.text; }); return p; })())));
   }
 
   function runStatus(st) {
@@ -280,7 +287,9 @@
         m.nep ? h("span", {}, S.icon("flask", "sm"), "NEP " + m.nep) : null,
         cl.cores_per_node ? h("span", {}, S.icon("cpu", "sm"), (cl.partition ? `partition ${cl.partition} · ` : "") + `${cl.cores_per_node} cores/node · ${cl.walltime}`) : null,
         rec.created ? h("span", {}, S.icon("clock", "sm"), `created ${rec.created.slice(0, 16)}` + (elTxt ? ` · ${elTxt} ago` : "")) : null,
-        !rec.created ? h("span", {class: "t2"}, S.icon("alert", "sm"), "no run_record.json (made without the app)") : null)),
+        !rec.created ? h("span", {class: "t2"}, S.icon("alert", "sm"), "no run_record.json (made without the app) ",
+          h("button", {class: "btn sm", title: "Write run_record.json next to the config so settings changes and stages get a history (nothing else changes)",
+            onclick: async () => { const a = await S.api("/api/runs/adopt", {config: r.config_path}); if (a.ok) { S.toast("run adopted: history kept from now on"); S.route(); } }}, "Keep a history")) : null)),
       h("div", {class: "actions"},
         h("button", {class: "btn", onclick: () => poll(true), title: "Read the files, squeue and sacct again"}, S.icon("refresh"), "Refresh ", pollAgo),
         h("a", {class: "btn", href: "#/results?path=" + encodeURIComponent(r.workdir || r.folder)}, S.icon("table"), "Results"),
@@ -369,63 +378,4 @@
     if (act.panel) return S.emit("open-stage", act);
   };
 
-  const PANEL_MOD = {check: "dry_run", prepare: "prepare", plan: "plan", compute: "compute", status: "status", merge: "merge", rerun: "rerun_flagged"};
-  function stageCard(m, run, jobs, num) {
-    const card = h("div", {class: "card", style: {padding: "10px 12px"}, "data-module": m.id});
-    S.on("open-stage", (act) => {
-      if (PANEL_MOD[act.panel] !== m.id) return;
-      card.scrollIntoView({block: "center", behavior: "smooth"});
-      card.style.boxShadow = "0 0 0 3px var(--accent-weak)"; card.style.borderColor = "var(--accent)";
-      setTimeout(() => { card.style.boxShadow = ""; card.style.borderColor = ""; }, 2500);
-      for (const [k, v] of Object.entries(act.preset || {})) {
-        const el = card.querySelector(`[data-flag="${k === "choice" ? v : k}"]`);
-        if (el && el.type === "checkbox") el.checked = true;
-      }
-    });
-    const optEls = {};
-    const opts = h("div", {});
-    for (const o of m.options || []) {
-      const key = o.flag || "__free__";
-      const el = o.value ? h("input", {type: "text", class: "grow mono", placeholder: o.flag || "arguments", "data-flag": o.flag || "__free__"}) : h("input", {type: "checkbox", "data-flag": o.flag});
-      optEls[key] = el;
-      const lbl = h("span", {}, o.label || o.flag, o.modes ? h("span", {class: "muted"}, " (" + o.modes.join(", ") + ")") : null);
-      opts.append(o.value ? h("div", {class: "small", style: {margin: "4px 0"}}, h("div", {class: "muted"}, lbl), el)
-        : h("label", {class: "small", style: {display: "flex", gap: "6px", alignItems: "flex-start", margin: "3px 0"}}, el, lbl));
-    }
-    const getOpts = () => Object.fromEntries(Object.entries(optEls).map(([k, el]) => [k, el.type === "checkbox" ? el.checked : el.value]));
-    const btns = h("div", {class: "row"});
-    const order = ["dry", "local", "slurm", "slurm_write"];
-    const rank = (k) => (order.indexOf(k) < 0 ? 99 : order.indexOf(k));
-    const modes = Object.entries(m.modes || {}).sort((a, b) => rank(a[0]) - rank(b[0]));
-    for (const [mode, md] of modes) {
-      if (mode.startsWith("slurm") && !S.info.slurm && mode === "slurm") {
-        btns.append(h("button", {disabled: true, "data-off": "1", title: "SLURM not found on this machine (squeue is not on PATH): use 'write script' and submit on the cluster"}, md.label || mode));
-        continue;
-      }
-      btns.append(h("button", {class: mode === "local" && modes.length === 1 ? "primary" : "", onclick: () => launch(mode, md)}, md.label || mode));
-    }
-    btns.append(h("a", {href: "javascript:void 0", class: "small", onclick: async () => {
-      const lines = [];
-      for (const [mode] of modes) {
-        const p = await S.api("/api/stage", {module: m.id, mode, config: run.config_path, options: getOpts(), preview: true});
-        if (p.ok) lines.push(`# ${mode}\n${p.cmd}`);
-      }
-      pre.style.display = ""; pre.textContent = lines.join("\n\n");
-    }}, "commands"));
-    const pre = h("pre", {class: "log", style: {display: "none"}});
-    card.append(h("b", {}, num + ". " + m.title), m.description ? h("div", {class: "small muted"}, m.description) : null, opts, btns, pre);
-    async function launch(mode, md) {
-      const bs = [...btns.querySelectorAll("button")];
-      bs.forEach((b) => (b.disabled = true));             // no double submit
-      let r;
-      try { r = await S.api("/api/stage", {module: m.id, mode, config: run.config_path, options: getOpts()}); }
-      finally { setTimeout(() => bs.forEach((b) => (b.disabled = b.dataset.off === "1")), 1500); }
-      if (!r.ok) return;
-      const first = jobs.querySelector(".muted.card");
-      if (first) first.remove();
-      jobs.prepend(S.jobView(r.job, {title: `${m.title} · ${md.label || mode}`, onDone: () => S.emit("stage-started")}));
-      S.emit("stage-started");
-    }
-    return card;
-  }
 })();
