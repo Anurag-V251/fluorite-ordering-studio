@@ -235,6 +235,8 @@ scripts/
   rerun_flagged.py             recompute flagged rows (imaginary modes / unconverged) of a campaign in rounds, SLURM or local
   compare_ordering.py          same cation ordering in two structures? (IDENTICAL / EQUIVALENT / DIFFERENT)
   thermal_harmonic_nep.py      original single-structure F(T) script (reference)
+  single_runs.py               a few POSCARs: relax, harmonic F over a T grid (F, U_vib, ZPE, S, Cv, DOS), XRD, plots
+  plot_harmonic_compare.py     F(T), dF(T) vs a chosen reference, S/Cv panels, dF at T, DOS; PNG/PDF/SVG + HTML
   plot_free_energy.py          P(F) with multi-peak fits + ΔF; α vs F
   plot_F_vs_composition.py     all compositions: P(F) histograms per phase, multi-peak fits, peak branches; ΔF of every peak
   plot_F_vs_x_html.py          one self-contained HTML page of F vs composition with live controls (no server)
