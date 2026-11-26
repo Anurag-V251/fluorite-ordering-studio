@@ -405,6 +405,70 @@ def run_tests(api, env):
     check(r.get("ok") and (ad / "run_record.json").is_file() and r["record"]["history"][0]["event"] == "adopted by the app",
           "a run made without the app gets run_record.json (adopted)")
 
+    print("== results: one row per structure, New run estimate")
+    rr = api.get("/api/results/rows?path=" + str(W / "run_t222") + "&sort=dF_meV&limit=500")
+    st = api.get("/api/run/state?config=" + cfg_t)
+    check(rr["ok"] and rr["all"] == st["counts"]["structures"] and len(rr["rows"]) == rr["total"],
+          f"results rows: {rr.get('all')} structures = state count {st['counts']['structures']}")
+    dfs = [x["dF_meV"] for x in rr["rows"] if x["dF_meV"] is not None]
+    check(dfs == sorted(dfs) and min(dfs) == 0, "sorted by ΔF, the most stable structure of a composition has ΔF 0")
+    lows = {}
+    for x in rr["rows"]:
+        if x["status"] == "clean":
+            lows[x["comp"]] = min(lows.get(x["comp"], 9e9), x["F"])
+    x0 = max((x for x in rr["rows"] if x["status"] == "clean"), key=lambda x: x["dF_meV"])
+    check(abs(x0["dF_meV"] - 1000 * (x0["F"] - lows[x0["comp"]])) < 1e-3, "ΔF = F minus the lowest clean F of its composition")
+    one = api.get("/api/results/rows?path=" + str(W / "run_t222") + "&comp=" + x0["comp"] + "&phase=" + x0["phase"])
+    check(one["total"] == sum(1 for x in rr["rows"] if x["comp"] == x0["comp"] and x["phase"] == x0["phase"]) and
+          all(x["comp"] == x0["comp"] and x["phase"] == x0["phase"] for x in one["rows"]), f"filter by composition and phase: {one['total']} rows")
+    rp = x0.get("relaxed_path")
+    body = b""
+    if rp:
+        rq = urllib.request.Request(api.base + "/api/file?download=1&path=" + urllib.request.quote(rp), headers={"X-Token": api.token})
+        with urllib.request.urlopen(rq, timeout=60) as resp:
+            body = resp.read()
+    check(rp and "relaxed" in rp and body == Path(rp).read_bytes(), f"relaxed POSCAR of a row downloads: {rp}")
+    nf = api.get("/api/results/rows?path=" + str(W / "run_t222") + "&status=failed")
+    check(nf["ok"] and nf["total"] == 0 and nf["counts"].get("clean") == rr["all"], "status filter (failed: none) with counts of every status")
+    rd = api.get("/api/runs/read?folder=" + str(W / "run_c222"))
+    ec = json.loads(json.dumps(rd["config"]))
+    base_c = W / "run_c222"
+    ab = lambda p: p if not p or p.startswith("/") else str(base_c / p)
+    ec["structure"]["poscar"] = ab(ec["structure"]["poscar"])
+    ec["free_energy"]["nep"] = ab(ec["free_energy"]["nep"])
+    ec["mapping"]["templates"] = [(t.split("=", 1)[0] + "=" + ab(t.split("=", 1)[1])) if "=" in t else ab(t) for t in ec["mapping"]["templates"]]
+    est = api.post("/api/runs/estimate", {"config": ec})
+    dry = subprocess.run([PY, str(base_c / "scripts" / "campaign.py"), str(base_c / "campaign.toml"), "dry-run"], capture_output=True, text=True, env=env).stdout
+    import re as _re
+    m_ch = _re.search(r"~(\d+) chunks", dry)
+    m_ct = _re.search(r"TOTAL.*?(\d+)\s*$", dry, _re.M)
+    m_cs = _re.search(r"([\d,.]+) core-hours", dry)
+    check(est["ok"] and not est["problems"] and m_ct and est["structures"] == int(m_ct[1]) and m_ch and est["chunks"] == int(m_ch[1]) and
+          m_cs and abs(est["core_h"] - float(m_cs[1].replace(",", ""))) <= 0.051 + 0.01 * est["core_h"],
+          f"New run estimate = campaign.py dry-run: {est.get('structures')} structures, {est.get('chunks')} chunks, {est.get('core_h')} core-h "
+          f"(dry-run {m_ct and m_ct[1]}, {m_ch and m_ch[1]}, {m_cs and m_cs[1]})")
+    # the same with a big sec_per_structure and no prepared folders: pure prediction, compare the numbers closely
+    sys.path.insert(0, str(ROOT))
+    from studio import runs as R_
+    ec2 = json.loads(json.dumps(ec))
+    ec2["cluster"].update({"sec_per_structure": 3600.0, "walltime": "02:00:00", "cores_per_node": 8})
+    ec2["structure"]["compositions"] = "0:32:4"
+    ec2["paths"] = {"scripts": str(base_c / "scripts"), "workdir": "est_wd_none"}
+    (W / "est_check.toml").write_text(R_.to_toml(R_.coerce(ec2)))
+    est2 = api.post("/api/runs/estimate", {"config": ec2})
+    dry2 = subprocess.run([PY, str(base_c / "scripts" / "campaign.py"), str(W / "est_check.toml"), "dry-run"], capture_output=True, text=True, env=env).stdout
+    m_ch, m_ct, m_cs = _re.search(r"~(\d+) chunks", dry2), _re.search(r"TOTAL.*?(\d+)\s*$", dry2, _re.M), _re.search(r"([\d,.]+) core-hours", dry2)
+    check(m_ct and m_ch and m_cs and est2["structures"] == int(m_ct[1]) and est2["chunks"] == int(m_ch[1]) and
+          abs(est2["core_h"] - float(m_cs[1].replace(",", ""))) <= 0.051,
+          f"estimate before prepare = dry-run: {est2['structures']} structures, {est2['chunks']} chunks, {est2['core_h']:.1f} core-h "
+          f"(dry-run {m_ct and m_ct[1]}, {m_ch and m_ch[1]}, {m_cs and m_cs[1]})")
+    e2 = api.post("/api/runs/estimate", {"config": {**ec, "free_energy": {**ec["free_energy"], "nep": ""}}})
+    check(any("NEP model" in p for p in e2["problems"]), "estimate: missing NEP model reported")
+    code, rr2 = api.call("/api/runs/create", {"folder": str(W / "run_nonep"), "config": {**ec, "free_energy": {**ec["free_energy"], "nep": ""}}})
+    check(code == 400 and "NEP" in rr2.get("error", ""), "create refuses a run without a NEP model")
+    xr = api.get("/api/xrd/rows?source=" + str(W / "run_t222"))
+    check(xr.get("host") == "Zr" and xr.get("dopant") == "Ce", f"XRD page gets host/dopant from the run: {xr.get('host')} {xr.get('dopant')}")
+
     print("== input validation, double launch, stop")
     base = {"structure": {"poscar": str(W / "POSCAR_c_1x1x2"), "compositions": "0 4 8", "max_orderings": 2},
             "mapping": {"templates": [f"t={refs / 'POSCAR_t'}"]}, "free_energy": {"nep": str(W / "nep.txt")}}

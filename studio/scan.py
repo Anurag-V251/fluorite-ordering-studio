@@ -64,13 +64,17 @@ def read_csv(p):
 RESULT_KEYS = ("file", "status", "T_K", "phase", "n_imaginary_modes", "relax_converged", "F_total_eV_atom")
 
 
-def iter_result_rows(p):
+ROW_KEYS = RESULT_KEYS + ("id", "WC", "min_freq_THz", "max_force_eV_A", "time_s", "a_A", "b_A", "c_A",
+                          "volume_A3_atom", "dF_total_meV_atom", "note")
+
+
+def iter_result_rows(p, keys=RESULT_KEYS):
     """rows of a result CSV, streamed, keeping only the columns the scan uses (130k structures stay small)"""
     p = Path(p)
     try:
         with p.open(newline="") as f:
             for r in csv.DictReader(f):
-                yield {k: r[k] for k in RESULT_KEYS if r.get(k) not in (None, "")}
+                yield {k: r[k] for k in keys if r.get(k) not in (None, "")}
     except (OSError, csv.Error, UnicodeDecodeError):
         return
 
@@ -251,7 +255,7 @@ def _stats(vals):
     return {"min": min(v), "median": statistics.median(v), "max": max(v)}
 
 
-def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
+def scan(path: str, max_rows=None, relaxed_walk=True, want_rows=False) -> dict:
     t0 = time.time()
     root = Path(path).expanduser().resolve()
     if root.is_file() and root.suffix == ".toml":         # a campaign config: scan its workdir
@@ -322,7 +326,9 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
         sources = [str(p.relative_to(work)) for p in res]
         for p in res:
             cb = chunk_best[p.name] = {}
-            for r in iter_result_rows(p):
+            for r in iter_result_rows(p, ROW_KEYS if want_rows else RESULT_KEYS):
+                if want_rows:
+                    r["_src"] = p.name
                 add_best(cb, r)
                 add_best(best_by_T.setdefault(f"{fnum(r.get('T_K')):g}", {}), r)
     else:
@@ -332,7 +338,7 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
                 if not m:
                     continue
                 sources.append(f"{d.name}/{f}")
-                for r in iter_result_rows(d / f):
+                for r in iter_result_rows(d / f, ROW_KEYS if want_rows else RESULT_KEYS):
                     if not r.get("file"):
                         continue
                     r["file"] = f"{d.name}/{r['file']}"
@@ -340,7 +346,7 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
         if not best_by_T:          # only a merged CSV
             for p in sorted(work.glob("free_energy_*K_all.csv")):
                 sources.append(p.name)
-                for r in iter_result_rows(p):
+                for r in iter_result_rows(p, ROW_KEYS if want_rows else RESULT_KEYS):
                     add_best(best_by_T.setdefault(f"{fnum(r.get('T_K')):g}", {}), r)
     rows_by_T = best_by_T
     temps = sorted(rows_by_T, key=fnum)
@@ -398,10 +404,11 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
         if ph not in phases_seen:
             phases_seen.append(ph)
 
-    tables = {}
+    tables, rows_out = {}, {}
     for T in temps or ["-"]:
         best = best_by_T.get(T, {})
         cells = {}
+        srows = rows_out[T] = [] if want_rows else None
         keys = set(universe) | set(best) | planned
         for rel in keys:
             cdir = rel.split("/", 1)[0]
@@ -417,6 +424,8 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
             r = best.get(rel)
             if rel not in planned and (r is None or r.get("status") != "ok"):
                 c["unplanned"] += 1             # prepared, but in no chunk and not done (plan --append)
+            if srows is not None:
+                srows.append(_row_out(rel, cdir, ph, r, rel in planned, rel in relaxed))
             if r is None:
                 c["not_run"] += 1
             elif r.get("status") == "ok":
@@ -437,6 +446,10 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
             v = [x for x in c["F_clean"] if math.isfinite(x)]
             if v:
                 low[cdir] = min(low.get(cdir, v[0]), min(v))
+        if srows is not None:
+            for x in srows:
+                if x["F"] is not None and x["comp"] in low:
+                    x["dF_meV"] = round(1000 * (x["F"] - low[x["comp"]]), 4)
         out = []
         for (cdir, ph), c in cells.items():
             fc = [x for x in c["F_clean"] if math.isfinite(x)]
@@ -528,7 +541,35 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
         "merge_reports": reports, "reruns": reruns, "warnings": warnings,
         "has_logs": (work / "logs").is_dir(), "has_slurm": (work / "slurm").is_dir(),
         "scan_seconds": round(time.time() - t0, 2), "relaxed_counted": relaxed_walk,
+        **({"rows": rows_out} if want_rows else {}),
     }
+
+
+def _num_or_none(v, nd=None):
+    x = fnum(v)
+    if not math.isfinite(x):
+        return None
+    return round(x, nd) if nd is not None else x
+
+
+def _row_out(rel, cdir, ph, r, planned, relaxed):
+    """one structure for the Results table (compact)"""
+    if r is None:
+        status, im, un = "not_run", False, False
+    elif r.get("status") == "ok":
+        im, un = row_flags(r)
+        status = "clean" if not (im or un) else "flagged"
+    else:
+        status, im, un = "failed", False, False
+    return {"file": rel, "comp": cdir, "phase": ph, "status": status, "imaginary": bool(im), "unconverged": bool(un),
+            "F": _num_or_none((r or {}).get("F_total_eV_atom")) if status in ("clean", "flagged") else None,
+            "dF_meV": None, "min_freq": _num_or_none((r or {}).get("min_freq_THz"), 4),
+            "n_imag": int(_num_or_none((r or {}).get("n_imaginary_modes")) or 0),
+            "fmax": _num_or_none((r or {}).get("max_force_eV_A"), 5), "time_s": _num_or_none((r or {}).get("time_s"), 1),
+            "a": _num_or_none((r or {}).get("a_A"), 4), "b": _num_or_none((r or {}).get("b_A"), 4),
+            "c": _num_or_none((r or {}).get("c_A"), 4), "WC": (r or {}).get("WC", ""), "id": (r or {}).get("id", ""),
+            "note": ((r or {}).get("note") or "")[:200], "src": (r or {}).get("_src", ""),
+            "planned": planned, "relaxed": relaxed}
 
 
 if __name__ == "__main__":                    # python -m studio.scan FOLDER  -> JSON summary

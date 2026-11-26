@@ -181,16 +181,16 @@ def scripts_untrusted(d: Path):
     return None
 
 
-def cached_scan(path, fresh=False):
+def cached_scan(path, fresh=False, rows=False):
     """scan.scan(path); repeated calls within 5 s reuse the result (one scan per folder at a time)"""
-    key = str(Path(path).expanduser())
+    key = str(Path(path).expanduser()) + ("#rows" if rows else "")
     with ST.lock:
         lk = ST.scan_locks.setdefault(key, threading.Lock())
     with lk:
         hit = ST.scan_cache.get(key)
         if hit and time.time() - hit[0] < 5 and not fresh:
             return hit[1]
-        res = S.scan(path)
+        res = S.scan(path, want_rows=rows)
         with ST.lock:                           # a short-lived cache: keep only fresh results, at most 6
             now = time.time()
             ST.scan_cache[key] = (now, res)
@@ -201,6 +201,24 @@ def cached_scan(path, fresh=False):
             if len(ST.scan_locks) > 200:
                 ST.scan_locks = {k: v for k, v in ST.scan_locks.items() if k in ST.scan_cache or k == key}
         return res
+
+
+def relaxed_path(work: Path, x):
+    """where the relaxed POSCAR of a result row is (rerun round, campaign workdir or plain folder), or None"""
+    if not x.get("relaxed") and x["status"] == "not_run":
+        return None
+    m = re.match(r"chunk_rerun(\d{3})_", x.get("src") or "")
+    cand = ([work / f"rerun_{m[1]}" / "relaxed" / x["file"]] if m else []) + [work / "relaxed" / x["file"]]
+    parts = x["file"].split("/", 1)
+    if len(parts) == 2:
+        cand.append(work / parts[0] / "relaxed" / parts[1])
+    for c in cand:
+        try:
+            if c.is_file() and work.resolve() in c.resolve().parents:
+                return str(c)
+        except OSError:
+            continue
+    return None
 
 
 def compute_running(config):
@@ -506,6 +524,66 @@ class H(SR.SingleRunsAPI, BaseHTTPRequestHandler):
             ST.save_prefs({"recent_results": rec[:12]})
         self._json(res)
 
+    def api_get_results_rows(self, q):
+        """one structure per row (newest result per structure), filtered, sorted and paged on the server"""
+        g = lambda k, d="": (q.get(k) or [d])[0]
+        res = cached_scan(g("path"), g("fresh") == "1", rows=True)
+        if not res.get("ok") or res.get("layout") == "none":
+            return self._err(res.get("error") or "no results layout in this folder")
+        temps = res.get("temperatures") or ["-"]
+        T = g("T") if g("T") in res["rows"] else temps[-1] if temps[-1] in res["rows"] else next(iter(res["rows"]), None)
+        rows = res["rows"].get(T, []) if T else []
+        sel = lambda k: [x for x in g(k).split(",") if x]
+        comps, phases, stats = sel("comp"), sel("phase"), sel("status")
+        qq = g("q").strip().lower()
+        base = [x for x in rows if (not comps or x["comp"] in comps) and (not phases or x["phase"] in phases) and
+                (not qq or qq in x["file"].lower() or qq in (x.get("WC") or "").lower())]
+        counts = {}
+        for x in base:
+            counts[x["status"]] = counts.get(x["status"], 0) + 1
+            if x["imaginary"]:
+                counts["imaginary"] = counts.get("imaginary", 0) + 1
+            if x["unconverged"]:
+                counts["unconverged"] = counts.get("unconverged", 0) + 1
+        out = [x for x in base if not stats or x["status"] in stats or
+               ("imaginary" in stats and x["imaginary"]) or ("unconverged" in stats and x["unconverged"])]
+        key = g("sort", "dF_meV")
+        if key not in ("file", "comp", "phase", "status", "F", "dF_meV", "min_freq", "n_imag", "fmax", "time_s", "a", "b", "c", "WC"):
+            key = "dF_meV"
+        desc = g("desc") == "1"
+        num = key not in ("file", "comp", "phase", "status", "WC")
+        pct = {c["dir"]: c.get("pct") or 0 for c in res.get("compositions", [])}
+        def sk(x):
+            v = x.get(key)
+            if key == "comp":
+                return (0, pct.get(v, 0), v)
+            if v is None or v == "":
+                return (1, 0, "")              # empty values last, both directions
+            return (0, v if num else str(v), "")
+        out.sort(key=sk, reverse=desc)
+        if desc:                               # keep empty values last
+            out = [x for x in out if sk(x)[0] == 0] + [x for x in out if sk(x)[0] == 1]
+        try:
+            off, lim = max(0, int(g("offset", "0"))), min(1000, max(1, int(g("limit", "200"))))
+        except ValueError:
+            return self._err("offset and limit must be whole numbers")
+        page = [dict(x) for x in out[off:off + lim]]
+        work = Path(res["workdir"])
+        for x in page:
+            x["relaxed_path"] = relaxed_path(work, x)
+        self._json({"ok": True, "T": T, "temperatures": temps, "total": len(out), "all": len(rows), "counts": counts,
+                    "offset": off, "rows": page, "workdir": str(work), "phases": res.get("phases", []),
+                    "compositions": [{"dir": c["dir"], "pct": c.get("pct"), "n": c.get("n")} for c in res.get("compositions", [])],
+                    "sort": key, "desc": desc})
+
+    def api_post_runs_estimate(self, q):
+        """live summary of the New run form: structures, chunks, core-hours, walltime of a chunk"""
+        b = json.loads(self._body())
+        try:
+            self._json({"ok": True, **STATE.estimate(b.get("config") or {})})
+        except (ValueError, TypeError, KeyError) as e:
+            self._json({"ok": False, "error": str(e)})
+
     # ---------------------------------------------------------------- run dashboard state
     def api_get_run_state(self, q):
         cfg = (q.get("config") or [""])[0]
@@ -774,6 +852,12 @@ class H(SR.SingleRunsAPI, BaseHTTPRequestHandler):
         except (ValueError, OSError) as e:
             return self._err(str(e))
         out["refs_dir"] = str(APP / "refs")
+        try:                                     # the run's own host / dopant (species defaults of the page)
+            ri = R.read_run(Path(out.get("workdir") or src))
+            s_ = (ri.get("config") or {}).get("structure") or {}
+            out["host"], out["dopant"] = s_.get("host"), s_.get("dopant")
+        except (OSError, ValueError):
+            pass
         self._json(out)
 
     def _xrd_job(self, b, mode):

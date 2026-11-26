@@ -577,3 +577,93 @@ def _compress(ids):
         parts.append(str(ids[i]) if i == j else f"{ids[i]}-{ids[j]}")
         i = j + 1
     return ",".join(parts)
+
+
+# ---------------------------------------------------------------------- New run: live estimate (no files written)
+def estimate(cfg_in):
+    """what campaign.py dry-run would estimate for a config that is not saved yet: structures per phase,
+    core-hours, chunks and the walltime of one chunk.  Problems are returned as a list, not raised."""
+    cfg = R.coerce(cfg_in)
+    st_, fe, cl, mp = cfg["structure"], cfg["free_energy"], cfg["cluster"], cfg["mapping"]
+    problems = []
+    try:
+        R.validate(cfg)
+    except ValueError as e:
+        problems.append(str(e))
+    host = R.peek_poscar(st_["poscar"]) if st_.get("poscar") else {"ok": False, "error": "no host POSCAR yet"}
+    out = {"problems": problems, "host": None, "structures": None, "phases": [], "per_phase": {}, "compositions": [],
+           "core_h": None, "node_h": None, "chunks": None, "chunk_s": None, "walltime_s": parse_walltime(cl.get("walltime")),
+           "all_variants": "--all-variants" in str(mp.get("map_args", "")), "rounds": None, "wall_total_s": None}
+    nep = str(fe.get("nep") or "").strip()
+    if nep:
+        np_ = Path(nep).expanduser()
+        info = {"found": np_.is_file(), "species": None}
+        if np_.is_file():
+            try:
+                with np_.open(errors="replace") as f:
+                    w = f.readline().split()
+                if w and w[0].lower().startswith("nep") and len(w) > 2 and w[1].isdigit():
+                    info["species"] = w[2:2 + int(w[1])]
+            except OSError:
+                pass
+        out["nep"] = info
+    if not host.get("ok"):
+        return out
+    n0 = host["n_atoms"]
+    sp = (out.get("nep") or {}).get("species")
+    if sp:
+        need = [e for e in list(host["species"]) + [st_.get("dopant")] if e]
+        miss = [e for e in dict.fromkeys(need) if e not in sp]
+        if miss:
+            problems.append(f"the NEP model has no {', '.join(miss)} (it covers {', '.join(sp)})")
+    n_host = host["species"].get(st_["host"])
+    out["host"] = {"n_atoms": n0, "n_host": n_host, "species": host["species"], "repeat": host.get("repeat_guess")}
+    if not n_host:
+        return out
+    try:
+        comps = comp_list(st_["compositions"], n_host)
+    except (ValueError, TypeError):
+        comps = []
+    comps = [n for n in comps if 0 <= n <= n_host]
+    lat_host, _ = _read_cell(Path(st_["poscar"]).expanduser())
+    rep = host.get("repeat_guess")
+    cells = {}
+    if mp.get("include_parent", True):
+        cells["parent"] = lat_host
+    for t in mp.get("templates") or []:
+        label, p = R.split_template(t)
+        try:
+            tl, n = _read_cell(Path(p).expanduser())
+        except (OSError, ValueError, IndexError):
+            continue
+        cells[label] = [[x * (rep[i] if rep else 1) for x in tl[i]] for i in range(3)] if rep else lat_host
+    units = {}
+    for ph, lat in cells.items():
+        sc = phonon_sc(fe, lat)
+        units[ph] = sc[0] * sc[1] * sc[2]          # n_atoms = n0 for every phase (same cations, same repeat)
+    per_phase = {ph: 0 for ph in cells}
+    tot_u = 0.0
+    rows = []
+    for n in comps:
+        k = min(int(st_["max_orderings"]), math.comb(n_host, n))
+        rows.append({"n": n, "pct": round(100 * n / n_host, 2), "orderings": k, "possible": math.comb(n_host, n)})
+        for ph in cells:
+            per_phase[ph] += k
+            tot_u += k * units[ph]
+    sec = float(cl["sec_per_structure"])
+    threads = max(1, int(fe["threads"]))
+    workers = max(1, int(cl["cores_per_node"]) // threads)
+    wall = parse_walltime(cl["walltime"]) or 0
+    cap = workers * wall * float(cl["fill"]) / sec if sec > 0 else 0
+    n_chunks = int(math.ceil(tot_u / cap)) if cap > 0 and tot_u else 0
+    out.update({"structures": sum(per_phase.values()), "per_phase": per_phase, "phases": list(cells),
+                "units": {k: v for k, v in units.items()}, "compositions": rows,
+                "core_h": tot_u * sec * threads / 3600.0, "node_h": tot_u * sec * threads / 3600.0 / max(1, int(cl["cores_per_node"])),
+                "chunks": n_chunks, "workers": workers})
+    if n_chunks:
+        per = tot_u * sec / workers / n_chunks
+        rounds = int(math.ceil(n_chunks / max(1, int(cl["max_concurrent"]))))
+        biggest = max(units.values()) * sec / 1.0       # one structure of the most expensive phase (s, one worker)
+        out.update({"chunk_s": per, "rounds": rounds, "wall_total_s": rounds * per, "largest_structure_s": biggest,
+                    "array_too_big": n_chunks > int(cl["max_array"])})
+    return out
