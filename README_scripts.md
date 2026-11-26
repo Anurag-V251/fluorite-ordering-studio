@@ -131,7 +131,7 @@ python scripts/campaign.py campaign.toml dry-run                 # counts per co
 python scripts/campaign.py campaign.toml slurm prepare --submit  # array: one task per composition
 python scripts/campaign.py campaign.toml plan                    # split all structures into one-node chunks
 python scripts/campaign.py campaign.toml slurm compute --submit --with-merge   # array of chunks + merge job
-python scripts/campaign.py campaign.toml status                  # progress, failures, measured s/structure
+python scripts/campaign.py campaign.toml status                  # progress, failures, flags, measured s/structure (--json)
 python scripts/rerun_flagged.py campaign.toml --submit          # afterwards: recompute flagged rows (stricter settings) + merge
 ```
 
@@ -152,6 +152,12 @@ Run `plan` once all prepare tasks have finished (`dry-run` then shows every comp
   `cores_per_node / threads` structures in parallel, using
   seconds = `sec_per_structure` × (n_atoms × phonon-supercell atoms) / N₀². `sec_per_structure` is a guess until
   measured: run one chunk, read `status`, put the value in the config, then `plan --force` (no compute job running) to re-pack the unfinished structures; finished ones are kept and `merge` includes them.
+* **Status**: counts use the merge rule (newest row per structure, ok beats FAILED, rerun rows replace campaign
+  rows), so `status`, `merge` and the Results page agree; results from an earlier plan are included. Unfinished
+  chunks are split into *not started*, *partly run* and *only FAILED left* (the most common FAILED notes are
+  printed). Flags count only the newest row of each structure (fixed by a rerun = not flagged). The measured
+  `sec_per_structure` uses campaign rows only (not rerun rows) and says when to re-plan. `status --json` gives
+  the same as JSON.
 * **Restart**: every step skips finished work. Re-submit unfinished chunks with
   `slurm compute --unfinished --submit --with-merge`. Raising `max_orderings` later: `slurm prepare --unfinished`,
   `plan --append`, `slurm compute --unfinished`. Arrays larger than `max_array` (MaxArraySize) are split.
