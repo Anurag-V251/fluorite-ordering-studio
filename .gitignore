@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# test outputs
+tests/work/
+tests/**/work/
+node_modules/
+test-results/
+playwright-report/
+
+# app state (token, logs, caches); default is ~/.fluorite_studio but --state can point here
+.fluorite_studio/
+*.log
+*.pid
+token
+
+# run folders, results and calculations (keep these out of git)
+runs/
+results/
+run_*/
+Ce_*/
+rerun_*/
+*.csv
+*.h5
+*.hdf5
+*.npz
+*.npy
+*.traj
+*.xyz
+*.extxyz
+OUTCAR*
+vasprun*.xml
+CONTCAR*
+FORCE_CONSTANTS*
+phonopy*.yaml
+slurm-*.out
+
+# NEP models and other large or binary files
+nep*.txt
+*.nep
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.png
+*.pdf
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

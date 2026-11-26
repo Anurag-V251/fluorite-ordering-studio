@@ -1,0 +1,24 @@
+id = "prepare"
+kind = "stage"
+title = "Prepare: enumerate, map, verify"
+description = "enumerate_substitutions.py (random orderings + Warren-Cowley alpha) -> batch_map.py (map_fluorite.py onto every target phase) -> compare_ordering.py (every mapped file must be IDENTICAL). Restart-safe."
+order = 20
+[modes.local]
+label = "Run here"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "prepare"]
+[modes.slurm]
+label = "Submit SLURM array"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "prepare", "--submit"]
+[modes.slurm_write]
+label = "Write SLURM script only"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "prepare"]
+[[options]]
+flag = "--comp"
+label = "only these dopant counts n (e.g. 0 6 32)"
+value = true
+modes = ["local"]
+[[options]]
+flag = "--unfinished"
+label = "only compositions not prepared yet"
+value = false
+modes = ["slurm", "slurm_write"]

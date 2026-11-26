@@ -1,0 +1,16 @@
+# core (enumeration, mapping, Warren-Cowley, plotting)
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+
+# free energies (batch_free_energy.py, thermal_harmonic_nep.py)
+ase>=3.22
+calorine>=2.2
+phonopy>=2.20
+
+# XRD page / xrd_average.py
+pymatgen>=2024.1
+
+# optional
+# icet          # scripts/icet_sro.py
+tomli; python_version < "3.11"

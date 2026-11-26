@@ -1,0 +1,12 @@
+id = "cell_annotations"
+kind = "plot"
+title = "P(F) peaks with c/a and angle"
+description = "P(F) peaks of one composition annotated with c/a and cell angle; per-peak cell table."
+order = 60
+script = "plot_cell_annotations.py"
+input = "comp_csv"
+watch = ["input_dir", "--out-dir"]
+needs = ["numpy", "scipy", "matplotlib"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"

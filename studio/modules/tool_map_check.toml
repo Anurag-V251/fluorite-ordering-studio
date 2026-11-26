@@ -1,0 +1,11 @@
+id = "map_check"
+kind = "tool"
+title = "Map / transform + verify"
+description = "map_fluorite.py (direct, smallest distortion) or transform_set.py (physical path through the tetragonal hub) for one structure, then compare_ordering.py on every output. Reports IDENTICAL, rms shift, strain S and the number of equally good variants."
+order = 10
+script = "{studio}/helpers/map_check.py"
+input = "poscar"
+args = ["--scripts", "{scripts}"]
+watch = ["--out-dir"]
+[watch_defaults]
+"--out-dir" = "{output}/map_check"

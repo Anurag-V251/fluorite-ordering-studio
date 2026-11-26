@@ -1,0 +1,7 @@
+id = "wc_sro"
+kind = "tool"
+title = "Warren-Cowley alpha of a structure"
+description = "Use --shell-edges 0 4.8 (4.3 misses a neighbour in m)."
+order = 50
+script = "wc_sro.py"
+input = "poscar"

@@ -1,0 +1,13 @@
+id = "ca_vs_x_html"
+kind = "plot"
+title = "c/a vs x, interactive page"
+description = "P(c/a) (or theta, a_n, c_n, volume) per phase at every composition with peak fits. One self-contained HTML."
+order = 20
+script = "plot_ca_vs_x_html.py"
+input = "merged_csv"
+watch = ["input_dir", "--out"]
+needs = ["numpy", "scipy"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"
+"--dopant" = "{dopant}"

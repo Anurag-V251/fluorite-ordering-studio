@@ -1,0 +1,27 @@
+id = "rerun_flagged"
+kind = "stage"
+title = "Rerun flagged rows"
+description = "Recompute rows with imaginary modes and/or unconverged relaxation (default: fmax/10, steps x10, min_length+5). One round per call; merge afterwards."
+order = 70
+script = "rerun_flagged.py"
+[modes.dry]
+label = "Dry run (list)"
+cmd = ["{python}", "{scripts}/rerun_flagged.py", "{config}", "--dry-run"]
+[modes.local]
+label = "Run here (then merge)"
+cmd = ["{python}", "{scripts}/rerun_flagged.py", "{config}", "--local"]
+[modes.slurm]
+label = "Submit SLURM (+ merge job)"
+cmd = ["{python}", "{scripts}/rerun_flagged.py", "{config}", "--submit"]
+[[options]]
+flag = "--what"
+label = "which flags: both | imaginary | unconverged"
+value = true
+[[options]]
+flag = "--same"
+label = "same settings as the config (not stricter)"
+value = false
+[[options]]
+flag = ""
+label = "more arguments (e.g. --freq-window -0.5 0 --nodes 4)"
+value = true

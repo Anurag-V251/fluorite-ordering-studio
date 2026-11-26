@@ -1,0 +1,7 @@
+id = "enumerate"
+kind = "tool"
+title = "Enumerate orderings (one composition)"
+order = 30
+script = "enumerate_substitutions.py"
+input = "poscar"
+watch = ["R:input_dir", "--outdir"]    # Ce_xx/ folders next to the input

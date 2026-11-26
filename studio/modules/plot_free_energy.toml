@@ -1,0 +1,12 @@
+id = "free_energy_pf"
+kind = "plot"
+title = "P(F) of one composition"
+description = "P(F) per phase with Gaussian-mixture peaks and dF table; alpha vs F."
+order = 50
+script = "plot_free_energy.py"
+input = "comp_csv"
+watch = ["input_dir", "--out-dir"]
+needs = ["numpy", "scipy", "matplotlib"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"

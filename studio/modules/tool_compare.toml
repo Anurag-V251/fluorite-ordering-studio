@@ -1,0 +1,6 @@
+id = "compare_ordering"
+kind = "tool"
+title = "Compare two orderings"
+order = 20
+script = "compare_ordering.py"
+input = "poscar"

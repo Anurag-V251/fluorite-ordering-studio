@@ -1,0 +1,8 @@
+id = "batch_free_energy"
+kind = "tool"
+title = "Free energies of one folder"
+description = "batch_free_energy.py without the campaign machinery (one composition folder, any layout)."
+order = 70
+script = "batch_free_energy.py"
+input = "folder"
+needs = ["ase", "calorine", "phonopy"]

@@ -1,0 +1,55 @@
+# campaign.py config: Ce for Zr in a 96-atom ZrO2 cell, all compositions, 1000 random orderings each,
+# mapped onto t, oIII and m, harmonic free energy at 300 K with NEP.  Paths are relative to THIS file.
+#   python scripts/campaign.py campaign.toml dry-run
+
+[structure]
+poscar        = "POSCAR_96"          # host supercell (VASP5, diagonal repeat of the 12-atom cell)
+host          = "Zr"
+dopant        = "Ce"
+compositions  = "all"                # dopant counts: "all" (0..N), "0:32:2" (inclusive), or a list [0, 6, 16, 32]
+max_orderings = 1000                 # distinct random orderings per composition; all of them where fewer exist
+seed          = 1                    # composition n uses seed*1000 + n (recorded in <comp>/prepared.json)
+
+[paths]
+scripts = "scripts"                  # the package's scripts folder (incl. compare_ordering.py)
+workdir = "campaign"                 # everything is written here
+
+[mapping]
+templates      = ["t=refs/POSCAR_t", "oIII=refs/POSCAR_oIII", "m=refs/POSCAR_m"]
+map_args       = ""                  # extra map_fluorite.py options, e.g. "--all-variants" (6-48x more structures)
+include_parent = true                # also compute the un-mapped parent orderings (phase = parent)
+verify         = true                # compare_ordering.py parent vs every mapped file: must be IDENTICAL
+jobs           = 8                   # parallel mapping/verification processes (= cpus of a prepare job)
+
+[free_energy]
+nep        = "nep.txt"
+T          = 300
+relax      = true
+fmax       = 1e-3                    # eV/Å; rows above it after `steps` are flagged relax_converged = False
+steps      = 2000
+fixed_cell = false
+min_length = 10.0                    # automatic phonon supercell: every width >= this (Å)
+supercell  = []                      # or e.g. [1, 1, 1] to fix it
+mesh       = 100
+threads    = 1                       # BLAS/OpenMP threads per structure
+
+[cluster]
+cores_per_node    = 64
+walltime          = "24:00:00"       # per chunk (one node)
+fill              = 0.8              # plan chunks to use 80 % of the walltime
+sec_per_structure = 300              # wall s of ONE host-sized structure with a 1x1x1 phonon cell on `threads` cores;
+                                     # guess -> run one chunk -> `status` prints the measured value -> update + plan --force
+max_array         = 1000             # your cluster's MaxArraySize (scontrol show config | grep MaxArraySize)
+max_concurrent    = 50               # array tasks running at the same time
+prepare_walltime  = "04:00:00"
+merge_walltime    = "01:00:00"
+partition         = ""
+account           = ""
+qos               = ""
+mem               = ""               # e.g. "0" (whole node) or "200G"
+sbatch_extra      = []               # e.g. ["--exclusive", "--constraint=cpu"]
+python            = "python3"
+setup             = """
+module load python/3.13
+source $HOME/venvs/nep/bin/activate
+"""

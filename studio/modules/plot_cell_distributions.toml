@@ -1,0 +1,11 @@
+id = "cell_distributions"
+kind = "plot"
+title = "P(c/a) and P(angle) of one composition"
+order = 70
+script = "plot_cell_distributions.py"
+input = "comp_csv"
+watch = ["input_dir", "--out-dir"]
+needs = ["numpy", "scipy", "matplotlib"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"

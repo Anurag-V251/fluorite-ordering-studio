@@ -1,0 +1,8 @@
+id = "status"
+kind = "stage"
+title = "Status"
+description = "Chunk progress, failures, measured seconds per structure (put it into sec_per_structure and re-plan with --force)."
+order = 50
+[modes.local]
+label = "Run"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "status"]

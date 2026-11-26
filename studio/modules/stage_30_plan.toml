@@ -1,0 +1,20 @@
+id = "plan"
+kind = "stage"
+title = "Plan chunks"
+description = "Packs all prepared structures into chunks that fill one node for one walltime (cost model in campaign.py)."
+order = 30
+[modes.local]
+label = "Run"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "plan"]
+[[options]]
+flag = "--partial"
+label = "plan only the compositions prepared so far"
+value = false
+[[options]]
+flag = "--append"
+label = "append: add structures not planned yet"
+value = false
+[[options]]
+flag = "--force"
+label = "force: re-plan (no compute job may be running; finished results are kept)"
+value = false

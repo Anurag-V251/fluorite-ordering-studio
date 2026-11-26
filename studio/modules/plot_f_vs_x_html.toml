@@ -1,0 +1,13 @@
+id = "f_vs_x_html"
+kind = "plot"
+title = "F vs x, interactive page"
+description = "Sideways P(F) histograms or bands per phase at every composition, peak fits, dF panel. Writes one self-contained HTML (live controls, Save SVG/PNG)."
+order = 10
+script = "plot_F_vs_x_html.py"
+input = "merged_csv"
+watch = ["input_dir", "--out"]
+needs = ["numpy", "scipy"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"
+"--dopant" = "{dopant}"

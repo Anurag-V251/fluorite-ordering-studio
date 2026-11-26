@@ -1,0 +1,7 @@
+id = "batch_map"
+kind = "tool"
+title = "Map a folder onto several phases"
+order = 40
+script = "batch_map.py"
+input = "folder"
+watch = ["R:input_dir"]                # writes <folder>/mapped/<phase>/...

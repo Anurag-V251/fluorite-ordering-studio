@@ -1,0 +1,11 @@
+id = "transform_set"
+kind = "tool"
+title = "transform_set.py (t hub, all partners)"
+order = 60
+script = "transform_set.py"
+input = "poscar"
+watch = ["--out-dir"]
+description = "Default references: the app's refs/ (POSCAR_c, POSCAR_t, POSCAR_oIII, POSCAR_m); pass --refs to use others. Output: --out-dir (default ./transformed next to the input)."
+args = ["--refs", "{app}/refs"]
+[watch_defaults]
+"--out-dir" = "transformed"

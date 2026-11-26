@@ -1,0 +1,13 @@
+id = "f_vs_ce_hist"
+kind = "plot"
+title = "F vs dopant %, horizontal histograms"
+description = "Absolute F or F relative to global / composition / mixing reference, histograms anchored at each concentration."
+order = 40
+script = "plot_F_vs_ce_hist.py"
+input = "merged_csv"
+watch = ["input_dir", "--out-dir"]
+needs = ["numpy", "scipy", "matplotlib"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"
+"--dopant" = "{dopant}"

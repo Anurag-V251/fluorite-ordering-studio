@@ -1,0 +1,29 @@
+id = "compute"
+kind = "stage"
+title = "Relax + harmonic free energy"
+description = "batch_free_energy.py on every chunk (NEP relaxation, phonopy, F at T). Restart-safe: finished structures are skipped."
+order = 40
+[modes.local]
+label = "Run all unfinished chunks here"
+cmd = ["{python}", "{studio}/helpers/run_chunks.py", "{config}"]
+[modes.slurm]
+label = "Submit SLURM array"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "compute", "--submit"]
+[modes.slurm_write]
+label = "Write SLURM script only"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "compute"]
+[[options]]
+flag = "--unfinished"
+label = "only unfinished chunks"
+value = false
+modes = ["slurm", "slurm_write"]
+[[options]]
+flag = "--with-merge"
+label = "submit a merge job after the array"
+value = false
+modes = ["slurm"]
+[[options]]
+flag = "--chunks"
+label = "only these chunk ids (e.g. 0 1 5)"
+value = true
+modes = ["local"]

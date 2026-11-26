@@ -1,0 +1,11 @@
+id = "merge"
+kind = "stage"
+title = "Merge"
+description = "One CSV for everything (free_energy_<T>K_all.csv), one per composition, and merge_report_<T>K.txt (flags per composition and phase)."
+order = 60
+[modes.local]
+label = "Run here"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "merge"]
+[modes.slurm]
+label = "Submit SLURM job"
+cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "merge", "--submit"]

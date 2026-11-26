@@ -1,0 +1,13 @@
+id = "f_vs_composition"
+kind = "plot"
+title = "F vs x, publication figure"
+description = "matplotlib version of the F vs x plot (PDF + PNG): histograms or bands, peak branches, dF of every peak."
+order = 30
+script = "plot_F_vs_composition.py"
+input = "merged_csv"
+watch = ["input_dir", "--out-dir"]
+needs = ["numpy", "scipy", "matplotlib"]
+
+[from_run]                              # filled in from the run that holds the input CSV
+"--label" = "parent={starting_phase} (initial)"
+"--dopant" = "{dopant}"

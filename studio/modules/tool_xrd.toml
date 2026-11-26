@@ -1,0 +1,10 @@
+id = "xrd_average"
+kind = "tool"
+title = "Averaged XRD of an F window (pymatgen)"
+description = "xrd_average.py: the structures of one composition/phase in an F window, relaxed geometry, optional species change in memory, one averaged pattern + references. The XRD page does the same interactively."
+order = 70
+script = "xrd_average.py"
+input = "folder"
+watch = ["--out-dir"]
+watch_defaults = {"--out-dir" = "xrd_average"}
+needs = ["numpy", "ase", "pymatgen", "matplotlib"]
