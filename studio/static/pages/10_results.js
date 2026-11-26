@@ -1,7 +1,7 @@
 /* Results page: scan a folder and show what has been done. */
 (function () {
   const S = Studio, h = S.h;
-  S.registerPage({id: "results", title: "Results", order: 10, render});
+  S.registerPage({id: "results", title: "Results", order: 30, icon: "table", render});
 
   function render(main, params) {
     const start = params.path || S.store.get("results.path", (S.info.prefs || {}).last_results || "");

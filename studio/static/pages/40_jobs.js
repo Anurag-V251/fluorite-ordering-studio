@@ -1,7 +1,7 @@
 /* Jobs page: commands started from the app (local, detached) and your SLURM jobs. */
 (function () {
   const S = Studio, h = S.h;
-  S.registerPage({id: "jobs", title: "Jobs", order: 40, render});
+  S.registerPage({id: "jobs", title: "Jobs", order: 20, icon: "server", render});
 
   async function render(main, params) {
     const top = h("div", {});

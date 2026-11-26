@@ -30,7 +30,7 @@
   const RECOMPUTE = ["source", "T", "comp", "phases", "lo", "hi", "flagged", "unrelaxed", "max", "seed", "wl", "wlc", "species", "spTo",
     "spMap", "anions", "dw", "symprec", "minrel", "refs", "refsDir", "refReplace", "refScale", "jobs"];
 
-  S.registerPage({id: "xrd", title: "XRD", order: 25, render});
+  S.registerPage({id: "xrd", title: "XRD", order: 45, icon: "xrd", render});
 
   function render(main, params) {
     let st = Object.assign({}, DEF, S.store.get("xrd.state", {}));
@@ -45,6 +45,8 @@
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const reTheme = () => { drawPF(); drawXRD(); };            // plot colours follow the light / dark theme
     if (mq && mq.addEventListener) { mq.addEventListener("change", reTheme); S.onLeave(() => mq.removeEventListener("change", reTheme)); }
+    window.addEventListener("studio-theme", reTheme);                  // the theme button in the top bar
+    S.onLeave(() => window.removeEventListener("studio-theme", reTheme));
 
     // ---------------------------------------------------------------- data card
     const pf = S.pathField(st.source, {title: "Results: run folder, campaign workdir, folder with Ce_xx/, or a result CSV"});
