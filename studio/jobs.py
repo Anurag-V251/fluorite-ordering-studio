@@ -277,7 +277,7 @@ def sacct(ids):
     if not ids or shutil.which("sacct") is None:
         return []
     try:
-        r = subprocess.run(["sacct", "-n", "-P", "-X", "-j", ",".join(ids), "-o", "JobID,JobName,State,Elapsed,ExitCode"],
+        r = subprocess.run(["sacct", "-n", "-P", "-X", "-j", ",".join(ids), "-o", "JobID,JobName,State,Elapsed,ExitCode,Timelimit,NodeList"],
                            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -285,7 +285,7 @@ def sacct(ids):
     for line in r.stdout.splitlines():
         p = line.split("|")
         if len(p) >= 5:
-            out.append(dict(zip(["id", "name", "state", "elapsed", "exit"], p)))
+            out.append(dict(zip(["id", "name", "state", "elapsed", "exit", "limit", "nodes"], p)))
     return out
 
 

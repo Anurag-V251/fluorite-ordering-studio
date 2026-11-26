@@ -21,7 +21,7 @@ Commands (CONFIG = campaign.toml)
   campaign.py CONFIG prepare [--comp 0 6 32] [--task I]   steps 1-3 (all compositions, or some, or the I-th)
   campaign.py CONFIG plan [--append|--force]             step 4
   campaign.py CONFIG run --chunk K           step 5 for one chunk (or --task I --offset O on SLURM)
-  campaign.py CONFIG status                  progress, failures, measured time per structure (recalibrate)
+  campaign.py CONFIG status [--json]         progress, failures, measured time per structure (recalibrate)
   campaign.py CONFIG merge                   step 6
   campaign.py CONFIG slurm prepare|compute|merge [--submit] [--unfinished]   write (and submit) SLURM scripts
 
@@ -512,25 +512,26 @@ def chunk_progress(cfg, plan):
     return out
 
 
-def cmd_status(cfg, a):
+def status_data(cfg):
+    """everything `status` reports, as a dict (status --json prints it)"""
     plan = load_plan(cfg)
     prog = chunk_progress(cfg, plan)
     tot = sum(p[1] for p in prog)
     ok = sum(p[2] for p in prog)
     fl = sum(p[3] for p in prog)
-    complete = [p[0] for p in prog if p[2] == p[1]]
-    unfinished = [p[0] for p in prog if p[2] < p[1]]
-    print(f"{len(prog)} chunks: {len(complete)} complete, {len(unfinished)} unfinished; "
-          f"structures {ok} ok, {fl} failed, {tot - ok - fl} not run, of {tot}")
-    if unfinished:
-        print("unfinished chunks: " + compress(unfinished))
     planned = set()
     for ch in plan["chunks"]:
         planned.update((cfg.work / "chunks" / ch["file"]).read_text().split())
-    earlier_ok = {r["file"] for r in all_results(cfg) if r["status"] == "ok"} - planned
-    if earlier_ok:
-        print(f"plus {len(earlier_ok)} structures finished under an earlier plan (kept; merge includes them)")
-    rows = [r for r in all_results(cfg) if r["status"] == "ok" and r.get("time_s")]
+    results = all_results(cfg)
+    out = {"chunks": len(prog), "complete": [p[0] for p in prog if p[2] == p[1]],
+           "unfinished": [p[0] for p in prog if p[2] < p[1]],
+           "chunk_progress": [{"id": p[0], "n": p[1], "ok": p[2], "failed": p[3]} for p in prog],
+           "structures": tot, "ok": ok, "failed": fl, "not_run": tot - ok - fl,
+           "earlier_ok": len({r["file"] for r in results if r["status"] == "ok"} - planned),
+           "sec_per_structure_config": float(cfg["cluster"]["sec_per_structure"]),
+           "sec_per_structure_plan": plan.get("sec_per_structure"), "measured": None,
+           "imaginary": 0, "unconverged": 0}
+    rows = [r for r in results if r["status"] == "ok" and r.get("time_s")]
     if rows:
         meas = []
         for r in rows:
@@ -538,12 +539,30 @@ def cmd_status(cfg, a):
             u, _ = cost_units(cfg, lat, nat)
             meas.append(float(r["time_s"]) / u)
         meas = np.array(meas)
-        print(f"measured sec_per_structure (median of {len(meas)}): {np.median(meas):.1f} s "
-              f"(10-90 %: {np.percentile(meas, 10):.1f}-{np.percentile(meas, 90):.1f}); config has "
+        out["measured"] = {"n": len(meas), "median": float(np.median(meas)), "p10": float(np.percentile(meas, 10)),
+                           "p90": float(np.percentile(meas, 90))}
+        out["imaginary"] = sum(1 for r in rows if int(float(r["n_imaginary_modes"] or 0)) > 0)
+        out["unconverged"] = sum(1 for r in rows if r.get("relax_converged") == "False")
+    return out
+
+
+def cmd_status(cfg, a):
+    d = status_data(cfg)
+    if getattr(a, "json", False):
+        print(json.dumps(d))
+        return
+    print(f"{d['chunks']} chunks: {len(d['complete'])} complete, {len(d['unfinished'])} unfinished; "
+          f"structures {d['ok']} ok, {d['failed']} failed, {d['not_run']} not run, of {d['structures']}")
+    if d["unfinished"]:
+        print("unfinished chunks: " + compress(d["unfinished"]))
+    if d["earlier_ok"]:
+        print(f"plus {d['earlier_ok']} structures finished under an earlier plan (kept; merge includes them)")
+    m = d["measured"]
+    if m:
+        print(f"measured sec_per_structure (median of {m['n']}): {m['median']:.1f} s "
+              f"(10-90 %: {m['p10']:.1f}-{m['p90']:.1f}); config has "
               f"{cfg['cluster']['sec_per_structure']}")
-        imag = sum(1 for r in rows if int(float(r["n_imaginary_modes"] or 0)) > 0)
-        unc = sum(1 for r in rows if r.get("relax_converged") == "False")
-        print(f"flags: {imag} with imaginary modes, {unc} with unconverged relaxation")
+        print(f"flags: {d['imaginary']} with imaginary modes, {d['unconverged']} with unconverged relaxation")
 
 
 def compress(ids):
@@ -819,7 +838,8 @@ def main():
     p.add_argument("--chunk", type=int)
     p.add_argument("--task", type=int)
     p.add_argument("--offset", type=int)
-    sub.add_parser("status")
+    p = sub.add_parser("status")
+    p.add_argument("--json", action="store_true", help="print the status as one JSON object")
     sub.add_parser("merge")
     p = sub.add_parser("slurm")
     p.add_argument("stage", choices=["prepare", "compute", "merge"])

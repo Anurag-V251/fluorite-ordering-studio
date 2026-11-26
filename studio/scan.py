@@ -410,11 +410,13 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
                 phases_seen.append(ph)
             c = cells.setdefault((cdir, ph), {"structures": 0, "planned": 0, "relaxed": 0, "ok": 0, "failed": 0,
                                               "imaginary": 0, "unconverged": 0, "clean": 0, "not_run": 0,
-                                              "F": [], "F_clean": []})
+                                              "unplanned": 0, "F": [], "F_clean": []})
             c["structures"] += 1
             c["planned"] += rel in planned
             c["relaxed"] += rel in relaxed
             r = best.get(rel)
+            if rel not in planned and (r is None or r.get("status") != "ok"):
+                c["unplanned"] += 1             # prepared, but in no chunk and not done (plan --append)
             if r is None:
                 c["not_run"] += 1
             elif r.get("status") == "ok":
@@ -499,7 +501,7 @@ def scan(path: str, max_rows=None, relaxed_walk=True) -> dict:
     totals = {}
     for T, tab in tables.items():
         tt = {k: sum(x[k] for x in tab) for k in ("structures", "planned", "relaxed", "ok", "failed",
-                                                   "imaginary", "unconverged", "clean", "not_run")}
+                                                   "imaginary", "unconverged", "clean", "not_run", "unplanned")}
         totals[T] = tt
     dopants = sorted({c["dopant"] for c in comps_out})
     if dopants and len(dopants) > 1:

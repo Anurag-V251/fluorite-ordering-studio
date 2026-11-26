@@ -28,6 +28,7 @@ from . import jobs as J
 from . import modules as MOD
 from . import runs as R
 from . import scan as S
+from . import state as STATE
 from . import xrd as X
 
 
@@ -53,6 +54,7 @@ class State:
         self.launch_lock = threading.Lock()
         self.scan_locks = {}
         self.scan_cache = {}
+        self.slurm_cache = {}
         self.port = 0
 
     def prefs(self):
@@ -103,7 +105,7 @@ def module_ctx(config=None):
         cp = Path(config).expanduser().resolve()
         ctx["config"] = str(cp)
         ctx["rundir"] = str(cp.parent)
-        info = R.read_run(cp.parent)
+        info = R.read_run(cp)
         if info.get("workdir"):
             ctx["workdir"] = info["workdir"]
         # a run uses ITS scripts folder (frozen copy = reproducibility).  Code is only run from the app's own
@@ -176,6 +178,53 @@ def scripts_untrusted(d: Path):
         if why:
             return why
     return None
+
+
+def cached_scan(path, fresh=False):
+    """scan.scan(path); repeated calls within 5 s reuse the result (one scan per folder at a time)"""
+    key = str(Path(path).expanduser())
+    with ST.lock:
+        lk = ST.scan_locks.setdefault(key, threading.Lock())
+    with lk:
+        hit = ST.scan_cache.get(key)
+        if hit and time.time() - hit[0] < 5 and not fresh:
+            return hit[1]
+        res = S.scan(path)
+        with ST.lock:                           # a short-lived cache: keep only fresh results, at most 6
+            now = time.time()
+            ST.scan_cache[key] = (now, res)
+            for k in sorted(ST.scan_cache, key=lambda k: ST.scan_cache[k][0])[:-6]:
+                ST.scan_cache.pop(k, None)
+            for k in [k for k, v in ST.scan_cache.items() if now - v[0] > 30]:
+                ST.scan_cache.pop(k, None)
+            if len(ST.scan_locks) > 200:
+                ST.scan_locks = {k: v for k, v in ST.scan_locks.items() if k in ST.scan_cache or k == key}
+        return res
+
+
+def slurm_snapshot(config, fresh=False):
+    """squeue (cached 10 s) and sacct of the jobs this run submitted (cached 30 s)"""
+    now = time.time()
+    with ST.lock:
+        sq = ST.slurm_cache.get("squeue")
+    if fresh or not sq or now - sq[0] > 10:
+        sq = (now, J.squeue())
+        with ST.lock:
+            ST.slurm_cache["squeue"] = sq
+    ids = STATE.slurm_ids(ST.jobs, config)
+    key = "sacct:" + ",".join(ids[-200:])
+    with ST.lock:
+        sa = ST.slurm_cache.get(key)
+    if ids and (fresh or not sa or now - sa[0] > 30):
+        sa = (now, J.sacct(ids[-200:]))
+        with ST.lock:
+            ST.slurm_cache[key] = sa
+            for k in [k for k, v in ST.slurm_cache.items() if k.startswith("sacct:") and now - v[0] > 300]:
+                ST.slurm_cache.pop(k, None)
+    known = set(ids)
+    return {"available": sq[1].get("available", False), "error": sq[1].get("error"),
+            "squeue": [j for j in sq[1].get("jobs", []) if j["id"].split("_")[0] in known],
+            "sacct": sa[1] if (ids and sa) else []}
 
 
 def resolve_script(mod, ctx=None):
@@ -441,31 +490,27 @@ class H(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- scan
     def api_get_scan(self, q):
-        path = (q.get("path") or [""])[0]
-        key = str(Path(path).expanduser())
-        with ST.lock:
-            lk = ST.scan_locks.setdefault(key, threading.Lock())
-        with lk:                                 # one scan per folder at a time; repeated calls within 5 s reuse it
-            hit = ST.scan_cache.get(key)
-            if hit and time.time() - hit[0] < 5 and (q.get("fresh") or ["0"])[0] != "1":
-                res = hit[1]
-            else:
-                res = S.scan(path)
-                with ST.lock:                   # a short-lived cache: keep only fresh results, at most 6
-                    now = time.time()
-                    ST.scan_cache[key] = (now, res)
-                    for k in sorted(ST.scan_cache, key=lambda k: ST.scan_cache[k][0])[:-6]:
-                        ST.scan_cache.pop(k, None)
-                    for k in [k for k, v in ST.scan_cache.items() if now - v[0] > 30]:
-                        ST.scan_cache.pop(k, None)
-                    if len(ST.scan_locks) > 200:
-                        ST.scan_locks = {k: v for k, v in ST.scan_locks.items() if k in ST.scan_cache or k == key}
+        res = cached_scan((q.get("path") or [""])[0], (q.get("fresh") or ["0"])[0] == "1")
         if res.get("ok") and res.get("layout") != "none":
             ST.save_prefs({"last_results": res["root"]})
             rec = ST.prefs().get("recent_results", [])
             rec = [res["root"]] + [r for r in rec if r != res["root"]]
             ST.save_prefs({"recent_results": rec[:12]})
         self._json(res)
+
+    # ---------------------------------------------------------------- run dashboard state
+    def api_get_run_state(self, q):
+        cfg = (q.get("config") or [""])[0]
+        p = Path(cfg).expanduser()
+        if not p.is_file():
+            info = R.read_run(p)                 # a run folder or a workdir also works
+            if not info.get("config_path"):
+                return self._err(info.get("error") or f"no campaign config for {cfg}")
+            p = Path(info["config_path"])
+        p = p.resolve()
+        fresh = (q.get("fresh") or ["0"])[0] == "1"
+        sc = cached_scan(str(p), fresh)
+        self._json(STATE.run_state(p, sc if sc.get("ok") else None, ST.jobs, slurm_snapshot(p, fresh)))
 
     def api_get_logs(self, q):
         wd = Path((q.get("workdir") or [""])[0]).expanduser()
@@ -598,6 +643,9 @@ class H(BaseHTTPRequestHandler):
             return self._json({"ok": True, "job": g}) if g else self._err("no such job", 404)
         self._json({"ok": True, "jobs": ST.jobs.list()})
 
+    def api_get_jobs_running(self, q):
+        self._json({"ok": True, "n": len(ST.jobs.running())})
+
     def api_post_jobs_cancel(self, q):
         self._json({"ok": ST.jobs.cancel(json.loads(self._body())["id"])})
 
@@ -644,9 +692,7 @@ class H(BaseHTTPRequestHandler):
 
     def api_get_runs_read(self, q):
         f = Path((q.get("folder") or [""])[0]).expanduser()
-        if f.is_file():
-            f = f.parent
-        info = R.read_run(f)
+        info = R.read_run(f)                     # run folder, its config file, or its workdir
         if info.get("config_path"):
             rec = ST.prefs().get("recent_runs", [])
             ST.save_prefs({"recent_runs": [info["config_path"]] + [r for r in rec if r != info["config_path"]][:11]})
