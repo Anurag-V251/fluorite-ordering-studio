@@ -114,5 +114,32 @@ for r in S.iter_result_rows(wd / "results" / "chunk_00000.csv"):
     S.add_best(b, r)
 check(b["Ce_00/a"]["status"] == "ok" and "extra" not in b["Ce_00/a"], "ok beats FAILED, unused columns dropped")
 
+print("== state: sbatch output, array ids, squeue/sacct rows, cost model")
+from studio import state as STATE  # noqa: E402
+log = """wrote /w/slurm/compute.sh
+  $ sbatch --parsable --array=0-4,9%50 --export=ALL,CHUNK_OFFSET=1000 compute.sh
+  submitted job 777
+  $ sbatch --parsable --dependency=afterany:777 merge.sh
+  submitted merge job 778 (after 777)
+round 2: 3 structures in 2 task(s)
+  $ sbatch --parsable --array=0-1 rerun_002.sh
+  submitted rerun array 779
+"""
+sub = STATE.submissions(log, "J", 0)
+check([(x["id"], x["kind"], x["offset"], x["tasks"]) for x in sub] ==
+      [("777", "compute", 1000, [0, 1, 2, 3, 4, 9]), ("778", "merge", 0, None), ("779", "rerun", 0, [0, 1])],
+      f"submissions parsed: {[(x['id'], x['kind'], x['tasks']) for x in sub]}")
+rows = STATE._slurm_rows([{"id": "777_[5-9%50]", "state": "PENDING"}, {"id": "777_3", "state": "RUNNING", "time": "1-00:00:05"}],
+                         [{"id": "777_0", "state": "TIMEOUT", "elapsed": "02:00:00"}, {"id": "777_3", "state": "RUNNING"}])
+check(rows["777"][0]["state"] == "TIMEOUT" and rows["777"][9]["state"] == "PENDING" and rows["777"][3]["state"] == "RUNNING"
+      and STATE._tsec(rows["777"][3]["time"]) == 86405, "squeue wins over sacct, pending ranges expanded, D-HH:MM:SS read")
+check(STATE.array_ids("[0-6:2]") == [0, 2, 4, 6] and STATE.comp_list("0:8:4", 32) == [0, 4, 8] and STATE.comp_list("all", 2) == [0, 1, 2],
+      "array steps and composition specs")
+import numpy as np  # noqa: E402
+lat = [[5.1, 0.2, 0], [0, 5.3, 0.1], [0.3, 0, 10.4]]
+inv = np.linalg.inv(np.array(lat))
+want = [max(1, int(np.ceil(10.0 / w - 1e-6))) for w in 1.0 / np.linalg.norm(inv, axis=0)]
+check(STATE.phonon_sc({"min_length": 10.0}, lat) == want, f"phonon supercell = campaign.py's numpy version {want}")
+
 print("UNIT TESTS FAILED" if fails else "UNIT TESTS PASSED")
 sys.exit(1 if fails else 0)

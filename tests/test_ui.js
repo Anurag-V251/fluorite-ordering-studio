@@ -79,6 +79,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       await p.click("text=Clear finished cards");
     }
 
+    console.log("== run dashboard: state strip, next step, theme");
+    await p.click('button:has-text("Refresh")');
+    await p.waitForFunction(() => { const e = document.querySelector(".st-kpi.total .kpi-v"); return e && e.textContent.trim() === "15"; }, null, {timeout: 20000});
+    const kp2 = await p.locator(".st-kpi").allTextContents();
+    check(kp2.some((t) => /Clean\s*15/.test(t)) && kp2.some((t) => /Chunks done\s*\d+\s*\/\s*\d+/.test(t)), "state strip: 15 structures, 15 clean, chunks " + kp2.join(" | ").replace(/\s+/g, " ").slice(0, 160));
+    check((await p.locator(".next .what").textContent()).length > 3, "next step shown: " + (await p.locator(".next .what").textContent()));
+    check(await p.locator(".nav a.on", {hasText: "Pipeline"}).count() === 1, "Pipeline highlighted in the nav");
+    const th0 = await p.evaluate(() => document.documentElement.dataset.theme);
+    await p.click("#themeBtn");
+    const th1 = await p.evaluate(() => document.documentElement.dataset.theme);
+    check(th0 !== th1 && ["light", "dark"].includes(th1), `theme button switches ${th0} -> ${th1}`);
+    await p.screenshot({path: path.join(W, "ui_dashboard_" + th1 + ".png"), fullPage: false});
+    await p.click("#themeBtn");
+    await p.reload(); await p.waitForSelector(".strip .kpi-v");
+    check(await p.evaluate(() => document.documentElement.dataset.theme) === th0, "theme choice kept after reload");
+
     console.log("== results of the new run");
     await p.goto(`${base}/#/results?path=${encodeURIComponent(path.join(W, "runs_ui", "run1"))}`);
     await p.waitForSelector("text=Progress per composition", {timeout: 30000});

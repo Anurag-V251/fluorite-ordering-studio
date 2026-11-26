@@ -294,6 +294,60 @@ def run_tests(api, env):
     j = stage(api, cfg, "rerun_flagged", "dry")
     check("rerun" in j.get("log", "").lower() or "flagged" in j.get("log", "").lower(), "rerun_flagged dry-run ran")
 
+    print("== run dashboard state (/api/run/state)")
+    st = api.get("/api/run/state?config=" + cfg)
+    check(st.get("ok") and [x["key"] for x in st["stages"]] == ["check", "prepare", "plan", "compute", "status", "merge", "rerun"],
+          "7 stages in order")
+    sc = runs["run_c222_scan"]
+    check(st["counts"]["structures"] == sc["totals"]["300"]["structures"] and st["counts"]["clean"] == sc["totals"]["300"]["clean"],
+          f"state counts = scan counts ({st['counts']['structures']} structures, {st['counts']['clean']} clean)")
+    subs = st["slurm"]["submissions"]
+    check({x["kind"] for x in subs} >= {"compute", "merge"} and any(x["kind"] == "compute" and x["n_tasks"] >= 1 for x in subs),
+          f"submitted SLURM jobs read from the job log: {[(x['id'], x['kind'], x['n_tasks']) for x in subs]}")
+    js = subprocess.run([PY, str(Path(cfg).parent / "scripts" / "campaign.py"), cfg, "status", "--json"], capture_output=True, text=True, env=env)
+    sj = json.loads(js.stdout)
+    m1, m2 = sj["measured"]["median"], st["timing"]["measured"]["median"]
+    check(abs(m1 - m2) <= 1e-6 * max(1, m1), f"measured sec_per_structure: app {m2:.4f} = campaign.py status --json {m1:.4f}")
+    check(sj["structures"] == st["counts"]["planned"] and sj["unfinished"] == st["chunks"]["unfinished"], "status --json agrees on chunks")
+    # live SLURM view with a fake squeue / sacct: the compute task runs, the merge job waits
+    cid = [x["id"] for x in subs if x["kind"] == "compute"][-1]
+    mid = [x["id"] for x in subs if x["kind"] == "merge"][-1]
+    (W / "bin" / "squeue").write_text(f"#!/bin/sh\necho '{cid}_0|RUNNING|0:04:10|0:10:00|1|normal|node7|fo_free_energy'\n"
+                                      f"echo '{mid}|PENDING|0:00|1:00:00|1|normal|(Dependency)|fo_merge'\n")
+    (W / "bin" / "sacct").write_text("#!/bin/sh\nexit 0\n")
+    for f in ("squeue", "sacct"):
+        os.chmod(W / "bin" / f, 0o755)
+    st = api.get("/api/run/state?fresh=1&config=" + cfg)
+    t0 = [t for t in st["slurm"]["tasks"] if t["job"] == cid and t["task"] == 0]
+    check(st["slurm"]["available"] and t0 and t0[0]["state"] == "RUNNING" and t0[0]["chunk"] == 0 and t0[0]["elapsed_s"] == 250,
+          f"squeue task -> chunk 0 RUNNING 250 s: {t0[:1]}")
+    check(st["compute_running"] and [x for x in st["stages"] if x["key"] == "compute"][0]["state"] == "running",
+          "compute shown as running while its SLURM task runs")
+    check(st["next"]["action"].get("go") == "jobs", f"next step while running: {st['next']['what']}")
+    for f in ("squeue", "sacct"):
+        (W / "bin" / f).unlink()
+    # an unfinished chunk + a measured time far from the plan -> re-plan first, then resubmit
+    cfg_t = runs["run_t222"]
+    wd_t = Path(cfg_t).parent / "campaign"
+    res = sorted((wd_t / "results").glob("chunk_*.csv"))[0]
+    keep = res.read_text()
+    lines = keep.strip().split("\n")
+    res.write_text("\n".join(lines[:1 + (len(lines) - 1) // 2]) + "\n")
+    st = api.get("/api/run/state?fresh=1&config=" + cfg_t)
+    ids = [a["id"] for a in st["attention"]]
+    check(ids[:1] == ["replan"] and "resubmit" in ids, f"attention order: {ids}")
+    check(st["next"].get("att") == "replan" and st["attention"][0]["action"]["preset"]["choice"] == "--force",
+          f"next step = re-plan with the measured time: {st['next']['what']}")
+    check([x for x in st["stages"] if x["key"] == "plan"][0]["pill"][1] == "Stale", "plan stage marked stale")
+    res.write_text(keep)
+    st = api.get("/api/run/state?fresh=1&config=" + cfg_t)
+    check(not [a for a in st["attention"] if a["id"] in ("replan", "resubmit")], "attention clears when the chunk is complete again")
+    # a run made without the app: open its workdir
+    r = api.get("/api/runs/read?folder=" + str(wd_t))
+    check(r.get("ok") and r["config_path"] == cfg_t, f"workdir opens its run: {r.get('config_path')}")
+    st = api.get("/api/run/state?config=" + str(wd_t))
+    check(st.get("ok") and st["config"] == cfg_t, "state of a workdir = state of its run")
+
     print("== reproducibility check")
     c = api.get("/api/runs/check?folder=" + str(W / "run_t222"))
     check(c["ok"] and c["identical"], "fresh run: inputs and scripts match the record")

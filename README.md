@@ -64,13 +64,14 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.2.0        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.3.0        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
 run that is already prepared. Keep run folders, results, NEP models and `~/.fluorite_studio` outside the
 repository (they are also listed in `.gitignore`). Personal modules go in `modules.d/` or `$FO_STUDIO_MODULES`.
 `MD5SUMS.txt` describes the release it was made for; `git status` / `git diff` are the check for local edits.
+What changed in each release, and how to go back to an older one: `CHANGELOG.md`.
 
 ---
 
@@ -80,7 +81,8 @@ repository (they are also listed in `.gitignore`). Personal modules go in `modul
 |---|---|
 | **Results** | Point it at a folder and it scans it. It reports compositions, x, orderings, whether each composition is prepared, structures per phase, relaxed files, F done, flagged (imaginary modes / unconverged relaxation), failed, not run, chunk progress, the lowest-F phase per composition, mapping statistics (rms shift, strain S, equally good variants, IDENTICAL count), the merge report and the logs. Temperature selector, auto-refresh. |
 | **Plots** | Every plot script (F vs x HTML, c/a vs x HTML, F vs composition, F vs Ce hist, P(F), cell annotations, cell distributions). The option form is built from the script's own `argparse`, so new options appear by themselves. The result is shown in the page (HTML in a frame, PNG inline), with the equivalent command line. Options are remembered per plot. |
-| **Pipeline** | *New run*: host POSCAR (= starting phase), host/dopant species, compositions, target phase templates ("phases for transformation", same cation ordering), all-variants, NEP model, T, relaxation, phonon and cluster settings. *Run view*: buttons for dry-run → prepare → plan → compute → status → merge → rerun flagged. Each one can run here, write the SLURM scripts, or submit them. |
+| **Pipeline** | The run dashboard. Header with a run switcher; a state strip with the counts (clean / flagged / failed / not run, chunks, core-hours used vs planned) and the **Next step**; the stages: dry-run → prepare → plan → compute → status → merge → rerun flagged, each run here, written as a SLURM script, or submitted. Opens the run you used last; *Runs* lists all runs and opens any run folder or campaign workdir (also runs made without the app). |
+| **New run** | Host POSCAR (= starting phase), host/dopant species, compositions, target phase templates ("phases for transformation", same cation ordering), all-variants, NEP model, T, relaxation, phonon and cluster settings. Writes a reproducible run folder. |
 | **Jobs** | Every command started from the app, with a live log and the files it wrote. Jobs keep running if you close the page or stop the server. Your SLURM queue (`squeue`), `sacct` of jobs submitted from the app, and `scancel`. |
 | **XRD** | One composition at a time: P(F) per phase (same colours as plot_free_energy.py, Gaussian-mixture fits). Drag on it, type the window (meV/atom above the lowest unflagged F) or pick a Gaussian (μ ± kσ), choose the phases with the chips. Every relaxed structure in the window gets its powder pattern from pymatgen, and the page shows ONE averaged pattern (mean, ±1 std or min–max, single patterns), with the references c, t, oIII, m (12-atom cells as they are, stacked, overlaid or as Bragg ticks with hkl). Details below. |
 | **Tools** | `map_check` (map_fluorite.py or transform_set.py on one structure, then compare_ordering.py on every output: IDENTICAL, rms shift, S, equally good variants), compare_ordering, enumerate, batch_map, wc_sro, transform_set, batch_free_energy. |
@@ -223,6 +225,10 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.3.0
+
+* New look and run dashboard (state strip, next step, light/dark). Details and how to revert: `CHANGELOG.md`.
 
 ## Changes in 1.2.0
 
