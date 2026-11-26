@@ -8,6 +8,7 @@ venv/
 
 # test outputs
 tests/work/
+tests/work_*/
 tests/**/work/
 node_modules/
 test-results/
