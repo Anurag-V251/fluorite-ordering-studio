@@ -21,7 +21,7 @@ Commands (CONFIG = campaign.toml)
   campaign.py CONFIG prepare [--comp 0 6 32] [--task I]   steps 1-3 (all compositions, or some, or the I-th)
   campaign.py CONFIG plan [--append|--force]             step 4
   campaign.py CONFIG run --chunk K           step 5 for one chunk (or --task I --offset O on SLURM)
-  campaign.py CONFIG status                  progress, failures, measured time per structure (recalibrate)
+  campaign.py CONFIG status [--json]         progress, failures, flags, measured time per structure (recalibrate)
   campaign.py CONFIG merge                   step 6
   campaign.py CONFIG slurm prepare|compute|merge [--submit] [--unfinished]   write (and submit) SLURM scripts
 
@@ -512,38 +512,146 @@ def chunk_progress(cfg, plan):
     return out
 
 
-def cmd_status(cfg, a):
+def _num(v, default=0.0):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    return x if np.isfinite(x) else default
+
+
+def row_flags(r):
+    """(imaginary modes, unconverged relaxation) of an ok row; tolerant of empty/odd values in old CSVs"""
+    return _num(r.get("n_imaginary_modes")) > 0, str(r.get("relax_converged", "")).strip() == "False"
+
+
+def status_summary(cfg):
+    """everything `status` reports, as a dict (also printed by status --json).  Counts use the same rule as merge
+    (latest row per structure, ok beats FAILED, rerun rows after campaign rows), so status, merge and the
+    Studio's Results page agree."""
     plan = load_plan(cfg)
-    prog = chunk_progress(cfg, plan)
-    tot = sum(p[1] for p in prog)
-    ok = sum(p[2] for p in prog)
-    fl = sum(p[3] for p in prog)
-    complete = [p[0] for p in prog if p[2] == p[1]]
-    unfinished = [p[0] for p in prog if p[2] < p[1]]
-    print(f"{len(prog)} chunks: {len(complete)} complete, {len(unfinished)} unfinished; "
-          f"structures {ok} ok, {fl} failed, {tot - ok - fl} not run, of {tot}")
-    if unfinished:
-        print("unfinished chunks: " + compress(unfinished))
-    planned = set()
+    best, n_rows, temps, campaign_ok = {}, 0, set(), []
+    for p in sorted((cfg.work / "results").glob("chunk_*.csv")):
+        is_rerun = p.name.startswith("chunk_rerun")
+        for r in read_csv(p):
+            if not r.get("file"):
+                continue
+            n_rows += 1
+            if r.get("T_K"):
+                temps.add(f"{_num(r['T_K'], float('nan')):g}")
+            f = r["file"]
+            if f not in best or r.get("status") == "ok" or best[f].get("status") != "ok":
+                best[f] = r
+            if r.get("status") == "ok" and not is_rerun:
+                campaign_ok.append(r)
+    # ---- chunks (progress from each chunk's own CSV: that is what `run` / `slurm compute --unfinished` redo)
+    planned, chunks, missing_lists = set(), [], []
     for ch in plan["chunks"]:
-        planned.update((cfg.work / "chunks" / ch["file"]).read_text().split())
-    earlier_ok = {r["file"] for r in all_results(cfg) if r["status"] == "ok"} - planned
-    if earlier_ok:
-        print(f"plus {len(earlier_ok)} structures finished under an earlier plan (kept; merge includes them)")
-    rows = [r for r in all_results(cfg) if r["status"] == "ok" and r.get("time_s")]
-    if rows:
-        meas = []
-        for r in rows:
+        lp = cfg.work / "chunks" / ch["file"]
+        if not lp.is_file():
+            missing_lists.append(ch["file"])
+            continue
+        files = lp.read_text().split()
+        planned.update(files)
+        own = {}
+        for r in read_csv(chunk_csv(cfg, ch["id"])):
+            own[r.get("file")] = r.get("status")
+        ok = sum(1 for f in files if own.get(f) == "ok")
+        failed = sum(1 for f in files if own.get(f) == "FAILED")
+        chunks.append({"id": ch["id"], "n": len(files), "ok": ok, "failed": failed, "not_run": len(files) - ok - failed})
+    unf = [c for c in chunks if c["ok"] < c["n"]]
+    kinds = {"not_started": [c["id"] for c in unf if c["ok"] + c["failed"] == 0],
+             "partly_run": [c["id"] for c in unf if c["not_run"] and c["ok"] + c["failed"]],
+             "only_failed_left": [c["id"] for c in unf if not c["not_run"]]}
+    # ---- structures
+    allf = planned | set(best)
+    ok_rows = [best[f] for f in allf if f in best and best[f].get("status") == "ok"]
+    failed_f = sorted(f for f in allf if f in best and best[f].get("status") != "ok")
+    not_run = sorted(f for f in planned if f not in best)
+    earlier = sorted(f for f in best if f not in planned)
+    unplanned = []                                         # prepared, but in no plan and without a result
+    for n in cfg.comps:
+        if prepared(cfg, n):
+            unplanned += [rel for rel, _ in structures(cfg, n) if rel not in allf]
+    notes = {}
+    for f in failed_f:
+        k = (best[f].get("note") or "no note").strip()[:120]
+        notes[k] = notes.get(k, 0) + 1
+    imag = sum(1 for r in ok_rows if row_flags(r)[0])
+    unc = sum(1 for r in ok_rows if row_flags(r)[1])
+    both = sum(1 for r in ok_rows if all(row_flags(r)))
+    rounds = sorted(int(p.name.split("_")[1]) for p in cfg.work.glob("rerun_[0-9][0-9][0-9]") if p.is_dir())
+    # ---- measured cost (campaign rows only: rerun rows use stricter settings; one row per structure)
+    meas, seen = [], set()
+    for r in reversed(campaign_ok):                        # newest row of a structure first
+        if r["file"] in seen or _num(r.get("time_s"), -1) <= 0:
+            continue
+        seen.add(r["file"])
+        try:
             lat, nat = read_cell(cfg.work / r["file"])
-            u, _ = cost_units(cfg, lat, nat)
-            meas.append(float(r["time_s"]) / u)
-        meas = np.array(meas)
-        print(f"measured sec_per_structure (median of {len(meas)}): {np.median(meas):.1f} s "
-              f"(10-90 %: {np.percentile(meas, 10):.1f}-{np.percentile(meas, 90):.1f}); config has "
-              f"{cfg['cluster']['sec_per_structure']}")
-        imag = sum(1 for r in rows if int(float(r["n_imaginary_modes"] or 0)) > 0)
-        unc = sum(1 for r in rows if r.get("relax_converged") == "False")
-        print(f"flags: {imag} with imaginary modes, {unc} with unconverged relaxation")
+        except (OSError, ValueError, IndexError):
+            continue
+        meas.append(_num(r["time_s"]) / cost_units(cfg, lat, nat)[0])
+    cal = None
+    if meas:
+        m = np.array(meas)
+        cfg_s = float(cfg["cluster"]["sec_per_structure"])
+        med = float(np.median(m))
+        cal = {"median": round(med, 2), "p10": round(float(np.percentile(m, 10)), 2),
+               "p90": round(float(np.percentile(m, 90)), 2), "n": len(m), "config": cfg_s,
+               "recalibrate": bool((not_run or unplanned) and not 2 / 3 <= med / cfg_s <= 1.5)}
+    return {"structures": len(allf) + len(unplanned), "ok": len(ok_rows), "failed": len(failed_f),
+            "not_run": len(not_run), "not_planned": len(unplanned), "planned": len(planned),
+            "earlier_plan": len(earlier), "result_rows": n_rows,
+            "chunks": {"n": len(chunks), "complete": len(chunks) - len(unf), "unfinished": [c["id"] for c in unf],
+                       **kinds, "missing_lists": missing_lists, "list": chunks},
+            "flags": {"imaginary": imag, "unconverged": unc, "both": both, "clean": len(ok_rows) - imag - unc + both},
+            "failed_notes": sorted(notes.items(), key=lambda kv: -kv[1]), "rerun_rounds": rounds,
+            "temperatures": sorted(temps, key=float), "sec_per_structure": cal,
+            "workers_per_node_planned": plan.get("workers_per_node"), "T_config": cfg.T_tag}
+
+
+def cmd_status(cfg, a):
+    s = status_summary(cfg)
+    if a.json:
+        print(json.dumps(s, indent=1))
+        return
+    c = s["chunks"]
+    print(f"{s['structures']} structures: {s['ok']} ok, {s['failed']} failed, {s['not_run']} not run"
+          + (f", {s['not_planned']} not planned yet (plan --append)" if s["not_planned"] else "")
+          + "   (same counts as merge)")
+    print(f"plan: {c['n']} chunk(s), {c['complete']} complete, {len(c['unfinished'])} unfinished; "
+          f"{s['planned']} structures planned"
+          + (f", {s['earlier_plan']} more finished under an earlier plan (kept, merged)" if s["earlier_plan"] else ""))
+    if c["unfinished"]:
+        parts = [f"{lab} {compress(c[k])}" for k, lab in (("not_started", "not started"), ("partly_run", "partly run"),
+                                                          ("only_failed_left", "only FAILED left")) if c[k]]
+        print("unfinished chunk ids: " + "; ".join(parts) + "   (slurm compute --unfinished reruns them, "
+              "FAILED ones are retried)")
+    if c["missing_lists"]:
+        print(f"WARNING: {len(c['missing_lists'])} chunk lists in plan.json are missing (e.g. {c['missing_lists'][0]}); "
+              "re-plan with plan --force")
+    for note, k in s["failed_notes"][:3]:
+        print(f"FAILED {k}x: {note}")
+    if len(s["failed_notes"]) > 3:
+        print(f"FAILED: {len(s['failed_notes']) - 3} more kinds of error (see the note column)")
+    fl = s["flags"]
+    if s["ok"]:
+        rr = s["rerun_rounds"]
+        print(f"flags (latest row per structure{', after rerun round ' + compress(rr) if rr else ''}): "
+              f"{fl['imaginary']} with imaginary modes, {fl['unconverged']} with unconverged relaxation, "
+              f"{fl['clean']} clean" + ("   (rerun_flagged.py recomputes flagged ones)"
+                                        if fl["imaginary"] + fl["unconverged"] and not rr else ""))
+    if len(s["temperatures"]) > 1:
+        print(f"WARNING: results at several temperatures {s['temperatures']} K; merge mixes them "
+              f"(config T = {s['T_config']} K)")
+    cal = s["sec_per_structure"]
+    if cal:
+        print(f"measured sec_per_structure: {cal['median']:.3g} s (median of {cal['n']} campaign structures, "
+              f"10-90 %: {cal['p10']:.3g}-{cal['p90']:.3g}); config has {cal['config']:g}")
+        if cal["recalibrate"]:
+            print(f"  -> set sec_per_structure = {cal['median']:.3g} in [cluster] and run plan --force before "
+                  "computing the rest (finished results are kept)")
 
 
 def compress(ids):
@@ -624,11 +732,10 @@ def cmd_merge(cfg, a):
             if not rr:
                 continue
             o = [r for r in rr if r["status"] == "ok"]
-            im = sum(1 for r in o if int(float(r["n_imaginary_modes"] or 0)) > 0)
-            un = sum(1 for r in o if r.get("relax_converged") == "False")
+            im = sum(1 for r in o if row_flags(r)[0])
+            un = sum(1 for r in o if row_flags(r)[1])
             lo = min((float(r["dF_total_meV_atom"]) for r in o), default=float("nan"))
-            lc = min((float(r["dF_total_meV_atom"]) for r in o if int(float(r["n_imaginary_modes"] or 0)) == 0
-                      and r.get("relax_converged") != "False"), default=float("nan"))
+            lc = min((float(r["dF_total_meV_atom"]) for r in o if not any(row_flags(r))), default=float("nan"))
             print(f"{dname:<10} {ph:<7} {len(o):5d} {len(rr) - len(o):5d} {im:5d} {un:6d}  {lo:9.2f}  {lc:20.2f}",
                   file=rep)
     if missing:
@@ -819,7 +926,8 @@ def main():
     p.add_argument("--chunk", type=int)
     p.add_argument("--task", type=int)
     p.add_argument("--offset", type=int)
-    sub.add_parser("status")
+    p = sub.add_parser("status")
+    p.add_argument("--json", action="store_true", help="print the status as JSON (for scripts and the Studio)")
     sub.add_parser("merge")
     p = sub.add_parser("slurm")
     p.add_argument("stage", choices=["prepare", "compute", "merge"])

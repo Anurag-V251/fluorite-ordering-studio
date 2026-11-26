@@ -64,7 +64,7 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.2.0        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.2.1        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
@@ -223,6 +223,13 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.2.1
+
+* `campaign.py status` fixed for old and rerun campaigns (see `CHANGELOG.md`): flags now count only the newest
+  row per structure (a structure fixed by `rerun_flagged.py` is no longer reported as flagged), counts match
+  `merge`, measured `sec_per_structure` ignores rerun rows, clearer unfinished-chunk and FAILED lines,
+  old CSVs with missing or odd columns no longer crash. New `status --json`.
 
 ## Changes in 1.2.0
 
