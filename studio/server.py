@@ -28,6 +28,7 @@ from . import jobs as J
 from . import modules as MOD
 from . import runs as R
 from . import scan as S
+from . import single as SR
 from . import xrd as X
 
 
@@ -196,7 +197,7 @@ def needs_report(mod):
 
 
 # ============================================================================ handler
-class H(BaseHTTPRequestHandler):
+class H(SR.SingleRunsAPI, BaseHTTPRequestHandler):
     timeout = 120                                # idle connections do not hold a thread forever
     server_version = "FluoriteStudio/" + R.APP_VERSION
 

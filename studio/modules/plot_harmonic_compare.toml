@@ -1,0 +1,9 @@
+id = "harmonic_compare"
+kind = "plot"
+title = "Harmonic F(T) comparison (single runs)"
+description = "plot_harmonic_compare.py: F(T), dF(T) vs a chosen reference (a structure or the lowest at each T), S / Cv / U_vib / F_vib, dF at chosen T, phonon DOS; PNG/PDF/SVG + interactive HTML. Input: the results/ folder of a single run. Fixed-cell harmonic, not QHA."
+order = 80
+script = "plot_harmonic_compare.py"
+input = "folder"
+watch = ["R:input_dir", "--out-dir"]
+needs = ["numpy", "matplotlib"]

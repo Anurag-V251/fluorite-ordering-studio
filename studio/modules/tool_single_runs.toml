@@ -1,0 +1,10 @@
+id = "single_runs_cli"
+kind = "tool"
+title = "Single runs (command line form)"
+description = "single_runs.py: relax, harmonic F at one T or a T ramp (F, U_vib, ZPE, S, Cv), XRD with references, comparison plots, for a few POSCARs. The Single runs page builds the same command with run folders and SLURM."
+order = 75
+script = "single_runs.py"
+input = "poscar"
+watch = ["--out-dir"]
+watch_defaults = {"--out-dir" = "single_runs"}
+needs = ["numpy", "ase", "calorine", "phonopy", "pymatgen", "matplotlib"]
