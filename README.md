@@ -82,9 +82,44 @@ repository (they are also listed in `.gitignore`). Personal modules go in `modul
 | **Plots** | Every plot script (F vs x HTML, c/a vs x HTML, F vs composition, F vs Ce hist, P(F), cell annotations, cell distributions). The option form is built from the script's own `argparse`, so new options appear by themselves. The result is shown in the page (HTML in a frame, PNG inline), with the equivalent command line. Options are remembered per plot. |
 | **Pipeline** | *New run*: host POSCAR (= starting phase), host/dopant species, compositions, target phase templates ("phases for transformation", same cation ordering), all-variants, NEP model, T, relaxation, phonon and cluster settings. *Run view*: buttons for dry-run → prepare → plan → compute → status → merge → rerun flagged. Each one can run here, write the SLURM scripts, or submit them. |
 | **Jobs** | Every command started from the app, with a live log and the files it wrote. Jobs keep running if you close the page or stop the server. Your SLURM queue (`squeue`), `sacct` of jobs submitted from the app, and `scancel`. |
+| **Single runs** | A few POSCARs (upload from your computer, pick on the server, or a whole folder) and one `nep.txt`: NEP relaxation, harmonic free energy at one temperature or over a ramp, XRD with optional reference structures, and comparison plots with a ΔF reference you choose (a structure, or the lowest F at each T). Runs here or on SLURM; results, figures and CSVs on the page, re-plot with another reference. Details below. |
 | **XRD** | One composition at a time: P(F) per phase (same colours as plot_free_energy.py, Gaussian-mixture fits). Drag on it, type the window (meV/atom above the lowest unflagged F) or pick a Gaussian (μ ± kσ), choose the phases with the chips. Every relaxed structure in the window gets its powder pattern from pymatgen, and the page shows ONE averaged pattern (mean, ±1 std or min–max, single patterns), with the references c, t, oIII, m (12-atom cells as they are, stacked, overlaid or as Bragg ticks with hkl). Details below. |
 | **Tools** | `map_check` (map_fluorite.py or transform_set.py on one structure, then compare_ordering.py on every output: IDENTICAL, rms shift, S, equally good variants), compare_ordering, enumerate, batch_map, wc_sro, transform_set, batch_free_energy. |
 | **Modules** | What is registered, where each module comes from, and how to add or replace one. |
+
+## Single runs page (`scripts/single_runs.py`, `scripts/plot_harmonic_compare.py`)
+
+**Fixed-cell harmonic approximation, not quasi-harmonic.** One phonon calculation at the (relaxed) cell gives
+F for every temperature, so a ramp costs the same as one temperature, and there is no thermal expansion.
+F_total(T) = E_static + F_vib(T), per atom.
+
+* **Inputs**: POSCARs (VASP; species read from the files, nothing assumes Zr/Ce), a NEP model (not needed for
+  XRD only). Labels default to the file names; type your own.
+* **Tasks**: *relax* (LBFGS, cell + positions or fixed cell, same fmax/steps and convergence check as
+  `batch_free_energy.py`), *harmonic* (phonopy finite displacements via calorine; automatic supercell from a
+  minimum width, or fixed; q-mesh density), *xrd* (`xrd_average.py` on the structure used, relaxed if relaxed,
+  with references `POSCAR_<name>` from `refs/` or any folder; more options such as `--wavelength MoKa`),
+  *plots*.
+* **Temperatures**: constant T (one or several) or a ramp TMIN..TMAX step, plus extra temperatures.
+* **Per structure**: `thermo.csv` (T, E_static, F_vib, F_total, U_vib incl. zero-point energy, S, Cv, TS),
+  ZPE, phonon DOS, relaxed POSCAR, XRD, `result.json` (flags, md5 of input and NEP, settings key).
+* **Flags** (table, CSV, figures dashed, HTML): imaginary modes, relaxation not converged, unrelaxed input
+  with large forces. The `lowest` reference uses only unflagged structures.
+* **Figures** (PNG / PDF / SVG / EPS, 300 dpi, one-column 3.4 in by default; width, height, font size on
+  re-plot): `F_vs_T` (F_total and ΔF vs the reference), `thermo_panels` (F_vib, U_vib, S, Cv),
+  `dF_at_T` (ΔF of every structure at chosen T), `phonon_dos`, `xrd_compare` (every structure + references,
+  same colour per structure as in the F figures), `comparison.csv` (every T), `harmonic_compare.html`
+  (interactive: quantity, reference, hover, table; no internet needed).
+* **Run folders** (`<runs folder>/<date-time>_<name>/`): `request.json` (form, md5 of inputs, NEP, scripts),
+  `inputs/` (copies), `scripts/` (frozen copies), `run.sh` (`bash run.sh` repeats the run), `job.sbatch`
+  (SLURM: partition, time, cpus, mem, account, qos, setup lines, python), `results/`. Restarting skips
+  structures already done with the same settings. Uploads go to `<runs folder>/_uploads/<date>/`.
+
+```bash
+python3 scripts/single_runs.py POSCAR_a POSCAR_b --nep nep.txt --relax --T-range 0 1500 10 --T 300 \
+        --tasks relax harmonic xrd plot --xrd-ref c t oIII m --reference POSCAR_a
+python3 scripts/plot_harmonic_compare.py single_runs/ --reference lowest --T-window 0 1200 --at-T 300 900 --formats pdf svg
+```
 
 ## XRD page (`scripts/xrd_average.py`)
 
@@ -201,6 +236,8 @@ node tests/test_ui.js           # ~3 min, after test_studio.py: clicks through t
 bash tests/test_campaign.sh     # the campaign.py test, as before
 python3 tests/test_xrd.py       # ~2 min: XRD script + endpoints (needs ase, pymatgen); mock campaigns from make_xrd_mock.py
 node tests/test_xrd_ui.js       # ~1 min, after test_xrd.py: the XRD page in Chromium
+python3 tests/test_single_runs.py  # ~1-3 min: single_runs.py vs the analytic Einstein crystal of the mock, 4 phases x 4 cell shapes, flags, plots, endpoints
+node tests/test_single_ui.js    # ~1 min, after test_single_runs.py: the Single runs page in Chromium
 ```
 
 `test_studio.py` drives the app through its HTTP API. It creates three runs: a cubic 1×1×2 host, a cubic
@@ -223,6 +260,12 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.3.0
+
+* New **Single runs** page with `scripts/single_runs.py` and `scripts/plot_harmonic_compare.py` (also on the
+  Tools and Plots pages): relax, harmonic F at one T or a T ramp (F, U_vib, ZPE, S, Cv), XRD with references,
+  comparison figures with a chosen ΔF reference. See CHANGELOG.md.
 
 ## Changes in 1.2.1
 

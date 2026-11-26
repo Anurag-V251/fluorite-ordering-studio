@@ -31,7 +31,7 @@ except ModuleNotFoundError:                     # Python < 3.11
     except ModuleNotFoundError:
         sys.exit("Python < 3.11 needs the package tomli:  pip install tomli")
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.0"
 HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {   # same keys as campaign.py DEFAULTS (values are the app's start values); only these are written

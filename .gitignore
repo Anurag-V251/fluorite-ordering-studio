@@ -10,6 +10,7 @@ venv/
 tests/work/
 tests/work_*/
 tests/**/work/
+tests/work_*/
 node_modules/
 test-results/
 playwright-report/
