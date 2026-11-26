@@ -9,7 +9,8 @@
     const auto = h("input", {type: "checkbox"});
     const out = h("div", {});
     const recent = ((S.info.prefs || {}).recent_results || []).slice(0, 6);
-    const go = () => { S.store.set("results.path", pf.input.value); scan(pf.input.value, out); };
+    const filt = {comp: params.comp || "", phase: params.phase || "", status: params.status || ""};
+    const go = () => { S.store.set("results.path", pf.input.value); scan(pf.input.value, out, false, filt); };
     pf.input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
     main.append(h("div", {class: "card"},
       h("h2", {}, "Results folder"),
@@ -23,11 +24,11 @@
       "Pick a folder above: a run folder (with campaign.toml), its workdir, or any folder with Ce_xx/ composition folders. ",
       "No run yet? ", h("a", {href: "#/pipeline?new=1"}, "Pipeline → New run"), "."),
       S.runsList((x) => { pf.input.value = x.folder; go(); })));
-    S.every(30000, () => { if (auto.checked && pf.input.value) scan(pf.input.value, out, true); });
+    S.every(30000, () => { if (auto.checked && pf.input.value) scan(pf.input.value, out, true, filt); });
     if (start) go();
   }
 
-  async function scan(path, out, quiet) {
+  async function scan(path, out, quiet, filt) {
     if (!quiet) out.innerHTML = '<div class="card muted">scanning…</div>';
     const r = await S.api("/api/scan?path=" + encodeURIComponent(path));
     out.innerHTML = "";
@@ -75,6 +76,11 @@
         h("div", {class: "small muted", style: {marginTop: "6px"}},
           "Harmonic F at fixed relaxed cell (not QHA). Flagged = imaginary modes and/or unconverged relaxation; those rows are kept in the CSV but are not reliable.")));
 
+      // heatmap (composition x phase) and one row per structure
+      const tblBox = h("div", {});
+      const tbl = S.structTable(r.root, T, filt || {}, tblBox);
+      body.append(S.heatmap(r, T, {onPick: (comp, phase) => tbl.setFilter({comp, phase}), selected: filt || {}}), tblBox);
+
       // per composition overview
       const comps = r.compositions;
       const by = {};
@@ -97,7 +103,7 @@
             [h("b", {}, best[0].phase), best[1] ? ` (next ${best[1].phase} +${S.fmt(best[1].dF_lowest_meV, 2)} meV/atom)` : ""])));
       }
       t1.append(tb);
-      body.append(h("div", {class: "card"}, h("h2", {}, "Progress per composition"),
+      body.append(h("details", {class: "card"}, h("summary", {}, "Progress per composition"),
         h("div", {class: "small muted"}, "bar: ", h("span", {class: "pill ok"}, "F done, clean"), " ", h("span", {class: "pill warn"}, "flagged"), " ",
           h("span", {class: "pill bad"}, "failed"), " grey = not run. Numbers: done / structures. Hover for details."),
         h("div", {class: "tablewrap"}, t1)));

@@ -31,7 +31,7 @@ except ModuleNotFoundError:                     # Python < 3.11
     except ModuleNotFoundError:
         sys.exit("Python < 3.11 needs the package tomli:  pip install tomli")
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {   # same keys as campaign.py DEFAULTS (values are the app's start values); only these are written
@@ -256,6 +256,10 @@ def validate(cfg):
         if pk["n_atoms"] != 12:
             raise ValueError(f"template {label}: {p} has {pk['n_atoms']} atoms; map_fluorite.py needs the 12-atom "
                              "conventional cell (4 cations + 8 anions) of the target phase")
+    if not str(fe["nep"] or "").strip():
+        raise ValueError("NEP model (nep.txt) is required: the relaxation and the phonons use it")
+    if not str(s.get("dopant") or "").strip():
+        raise ValueError("dopant element is required")
     if fe["nep"] and not Path(fe["nep"]).expanduser().is_file():
         raise ValueError(f"NEP model {fe['nep']} not found")
 

@@ -1,6 +1,6 @@
 # Changelog
 
-Every release is a git tag (`v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
+Every release is a git tag (`v1.6.0`, `v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
 commits are kept, so `git log` shows what changed and when.
 
 ## How to go back to an earlier version
@@ -23,6 +23,30 @@ git push
 Run folders keep their own frozen copy of the scripts, so going back never changes a finished run.
 To use a new `campaign.py` in an old run folder, copy it into `<run>/scripts/` (the old copy can be put back the
 same way). Single runs freeze their scripts the same way (`<single run>/scripts/`).
+
+## 1.6.0 (2026-11-26) - New run page, Results table and heatmap (GUI redesign, phase 3 of 3)
+
+* **New run** is one page in six sections (Run, Material, Phases, Relaxation & phonons, Cluster, Review) with a
+  section list on the left and a sticky **live estimate** on the right: structures (per phase), chunks, core-hours,
+  node-hours, how much of the walltime one chunk uses (gauge) and the wall time with max_concurrent nodes. The
+  numbers are those of `campaign.py dry-run` (checked in the tests). Problems (missing inputs, compositions out of
+  range, NEP model without an element of the POSCAR) are listed before you press Create. Advanced settings fold away;
+  terms such as sec_per_structure, fill, all variants and min_length have tooltips.
+  New endpoint `POST /api/runs/estimate`.
+* The **NEP model** and the **dopant element** are required when a run is created; the dopant field starts empty
+  (no element is assumed; *Copy to new run* keeps the old one).
+* **Results**: a **composition × phase heatmap** (colour by progress, lowest ΔF or flagged count; flagged / failed
+  dots; click a cell, a row or a column to filter) and a **table with one row per structure** (the newest result,
+  reruns included): status chips with counts (clean, flagged, imaginary, unconverged, failed, not run),
+  composition and phase filters, search by file or Warren-Cowley value, sortable columns, sticky first column,
+  paging, and a download of the **relaxed POSCAR** of each structure. The Attention action *Inspect failed* opens it
+  filtered. New endpoint `GET /api/results/rows`. The older per-composition tables are still there, folded.
+* The run dashboard shows the heatmap next to the Attention list; a click opens Results filtered.
+* **XRD**: the species defaults (replace pairs, every cation →) come from the run's host and dopant instead of Zr/Ce.
+* Tests: test_studio.py (rows = state counts, ΔF definition, filters, relaxed POSCAR download, estimate = dry-run
+  before and after prepare, NEP required, XRD host/dopant), test_ui.js (New run through the sections with the live
+  estimate, heatmap click filters the table, status chip, sorting, downloads).
+* Revert: `git checkout v1.5.0` (or `git revert -m 1 <merge commit of the 1.6.0 PR>`).
 
 ## 1.5.0 (2026-11-26) - run dashboard: pipeline, side panel, attention, jobs, settings (GUI redesign, phase 2 of 3)
 

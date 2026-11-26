@@ -64,7 +64,7 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.5.0        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.6.0        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
@@ -79,10 +79,10 @@ What changed in each release, and how to go back to an older one: `CHANGELOG.md`
 
 | Page | What it does |
 |---|---|
-| **Results** | Point it at a folder and it scans it. It reports compositions, x, orderings, whether each composition is prepared, structures per phase, relaxed files, F done, flagged (imaginary modes / unconverged relaxation), failed, not run, chunk progress, the lowest-F phase per composition, mapping statistics (rms shift, strain S, equally good variants, IDENTICAL count), the merge report and the logs. Temperature selector, auto-refresh. |
+| **Results** | Point it at a folder and it scans it. It reports compositions, x, orderings, whether each composition is prepared, structures per phase, relaxed files, F done, flagged (imaginary modes / unconverged relaxation), failed, not run, chunk progress, the lowest-F phase per composition, mapping statistics (rms shift, strain S, equally good variants, IDENTICAL count), the merge report and the logs. Temperature selector, auto-refresh. New in 1.6.0: a **composition × phase heatmap** (progress, lowest ΔF or flagged count; click a cell to filter) and a **table with one row per structure** (newest result; status chips with counts, composition / phase filter, search, sortable columns, sticky first column, ΔF, F, lowest frequency, max force, cell, Warren-Cowley, relaxed POSCAR download). The heatmap is on the run dashboard too. |
 | **Plots** | Every plot script (F vs x HTML, c/a vs x HTML, F vs composition, F vs Ce hist, P(F), cell annotations, cell distributions). The option form is built from the script's own `argparse`, so new options appear by themselves. The result is shown in the page (HTML in a frame, PNG inline), with the equivalent command line. Options are remembered per plot. |
 | **Pipeline** | The run dashboard. Header with a run switcher; a state strip with the counts (clean / flagged / failed / not run, chunks, core-hours used vs planned) and the **Next step**; the 7-stage **pipeline** (dry-run → prepare → plan → compute → status → merge → rerun flagged) with a live state per stage: click a stage for its side panel (facts, where to run: here / SLURM / script only, its options, the equivalent command, then its output); the **Attention** list (recovery actions in the order to do them, one button each); **Cluster settings** (edit them after creation, or apply the measured sec_per_structure with one button: campaign.toml is backed up and the change goes into the history); **Jobs** of the run (here and on SLURM: tasks, chunk, structures done, walltime used with the projected end, Stop / scancel after a confirmation); a **log drawer** at the bottom with the newest job's log and a level filter. Opens the run you used last; *Runs* lists all runs and opens any run folder or campaign workdir (also runs made without the app; *Keep a history* adopts them). |
-| **New run** | Host POSCAR (= starting phase), host/dopant species, compositions, target phase templates ("phases for transformation", same cation ordering), all-variants, NEP model, T, relaxation, phonon and cluster settings. Writes a reproducible run folder. |
+| **New run** | One page in six sections (run, material, phases, relaxation & phonons, cluster, review) with a sticky **live estimate**: structures per phase, chunks, core-hours, how much of the walltime one chunk uses, wall time with max_concurrent nodes; the same numbers as `campaign.py dry-run`. Advanced settings fold away; terms have tooltips. The NEP model and the dopant element are required (no element is assumed); the NEP file is checked for the elements of the POSCAR. Writes a reproducible run folder. |
 | **Jobs** | Every command started from the app, with a live log and the files it wrote. Jobs keep running if you close the page or stop the server. Your SLURM queue (`squeue`), `sacct` of jobs submitted from the app, and `scancel`. |
 | **Single runs** | A few POSCARs (upload from your computer, pick on the server, or a whole folder) and one `nep.txt`: NEP relaxation, harmonic free energy at one temperature or over a ramp, XRD with optional reference structures, and comparison plots with a ΔF reference you choose (a structure, or the lowest F at each T). Runs here or on SLURM; results, figures and CSVs on the page, re-plot with another reference. Details below. |
 | **XRD** | One composition at a time: P(F) per phase (same colours as plot_free_energy.py, Gaussian-mixture fits). Drag on it, type the window (meV/atom above the lowest unflagged F) or pick a Gaussian (μ ± kσ), choose the phases with the chips. Every relaxed structure in the window gets its powder pattern from pymatgen, and the page shows ONE averaged pattern (mean, ±1 std or min–max, single patterns), with the references c, t, oIII, m (12-atom cells as they are, stacked, overlaid or as Bragg ticks with hkl). Details below. |
@@ -269,6 +269,12 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.6.0
+
+* New run as one sectioned page with a live estimate (= dry-run numbers); Results with a heatmap and a
+  per-structure table; NEP model and dopant required at creation; XRD species defaults taken from the run.
+  Details and how to revert: `CHANGELOG.md`.
 
 ## Changes in 1.5.0
 

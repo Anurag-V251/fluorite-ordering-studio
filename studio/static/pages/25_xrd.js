@@ -24,7 +24,7 @@
   const DEF = {source: "", T: "", comp: "", phases: null, lo: null, hi: null, flagged: false, unrelaxed: false, max: 500, seed: 0,
     bins: 40, fits: true, ksig: 1, xlo: "", xhi: "",
     wl: "CuKa", wlc: "1.5406", tt0: 10, tt1: 90, step: 0.02, fwhm: 0.1, profile: "gaussian", eta: 0.5, cag: false, U: 0.004, V: -0.002, W: 0.006,
-    norm: "max", spread: "std", indiv: false, yscale: "linear", species: "none", spTo: "Zr", spMap: "Ce:Zr", anions: "O",
+    norm: "max", spread: "std", indiv: false, yscale: "linear", species: "none", spTo: "", spMap: "", spAuto: true, anions: "O",
     dw: "", symprec: 0, minrel: 1e-4, refs: ["c", "t", "oIII", "m"], refsDir: "", refReplace: true, refScale: false,
     refMode: "stack", ticks: true, refLabels: true, peakLabels: true, auto: true, jobs: 4, outDir: ""};
   const RECOMPUTE = ["source", "T", "comp", "phases", "lo", "hi", "flagged", "unrelaxed", "max", "seed", "wl", "wlc", "species", "spTo",
@@ -110,7 +110,8 @@
     const wlSel = sel("wl", [...Object.keys(WL).map((k) => [k, `${k} (${WL[k]} Å)`]), ["custom", "custom (Å)"]]);
     const wlc = txt("wlc", 70);
     const spSel = sel("species", [["none", "as in the files"], ["cations", "every cation →"], ["map", "replace pairs"]]);
-    const spTo = txt("spTo", 44, "Zr"), spMap = txt("spMap", 110, "Ce:Zr"), anions = txt("anions", 50, "O");
+    const spTo = txt("spTo", 44, "host"), spMap = txt("spMap", 110, "dopant:host"), anions = txt("anions", 50, "O");
+    [spTo, spMap].forEach((e) => e.addEventListener("change", () => { st.spAuto = false; save(); }));
     const refBoxes = h("span", {class: "row", style: {gap: "8px"}});
     const refsDir = S.pathField(st.refsDir, {dir: true});
     refsDir.style.flexWrap = "nowrap"; refsDir.input.style.minWidth = "0"; refsDir.style.minWidth = "0";
@@ -225,6 +226,10 @@
       if (!r.ok) { dinfo.textContent = r.error || "failed"; return; }
       D = r;
       st.comp = r.comp; st.T = r.T || "";
+      if (st.spAuto && r.host) {             // species defaults from the run (no element is assumed)
+        st.spTo = r.host; st.spMap = (r.dopant ? r.dopant + ":" : "") + r.host;
+        spTo.value = st.spTo; spMap.value = st.spMap; save();
+      }
       tsel.innerHTML = ""; (r.temperatures.length ? r.temperatures : [""]).forEach((t) => tsel.append(h("option", {value: t}, t ? t + " K" : "–")));
       tsel.value = st.T;
       csel.innerHTML = ""; r.compositions.forEach((c) => csel.append(h("option", {value: c.dir}, `${c.dir} (${c.n})`)));
