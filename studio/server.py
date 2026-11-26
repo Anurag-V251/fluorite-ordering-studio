@@ -203,6 +203,13 @@ def cached_scan(path, fresh=False):
         return res
 
 
+def compute_running(config):
+    """True while a compute job of this run runs here or a compute array task is pending/running on SLURM"""
+    p = Path(config).expanduser().resolve()
+    sc = cached_scan(str(p), False)
+    return bool(STATE.run_state(p, sc if sc.get("ok") else None, ST.jobs, slurm_snapshot(p, True)).get("compute_running"))
+
+
 def slurm_snapshot(config, fresh=False):
     """squeue (cached 10 s) and sacct of the jobs this run submitted (cached 30 s)"""
     now = time.time()
@@ -603,21 +610,46 @@ class H(SR.SingleRunsAPI, BaseHTTPRequestHandler):
                              (" Use 'copy settings to a new run' and check the settings (setup, python) first."
                               if "another user" in why else ""))
         cmd = MOD.expand(md["cmd"], ctx)
+        confirm = [md["confirm"]] if md.get("confirm") else []
+        blockers = []
+        given = b.get("options") or {}
         for o in m.get("options", []):
             if o.get("modes") and mode not in o["modes"]:
                 continue
-            v = (b.get("options") or {}).get(o.get("flag") or "__free__")
-            if o.get("value"):
-                if v and str(v).strip():
+            key = MOD.option_key(o)
+            v = given.get(key, o.get("default"))
+            if o.get("kind") == "choice":         # one of a few flags (radio buttons on the page)
+                ch = {str(c.get("flag", "")): c for c in o.get("choices", [])}
+                v = "" if v in (None, False) else str(v)
+                if v not in ch:
+                    return self._err(f"{o.get('label') or key}: choose one of {', '.join(repr(x) for x in ch)}")
+                if v:
+                    cmd.append(v)
+                if ch[v].get("confirm"):
+                    confirm.append(ch[v]["confirm"])
+                if ch[v].get("block_if_compute_running"):
+                    blockers.append(f"{ch[v].get('label') or v}")
+            elif o.get("value"):
+                if v not in (None, False) and str(v).strip():
                     try:
                         words = shlex.split(str(v))
                     except ValueError as e:
                         return self._err(f"option {o.get('flag') or 'arguments'}: {e}")
+                    if o.get("choices") and (len(words) != 1 or words[0] not in o["choices"]):
+                        return self._err(f"{o.get('flag')}: one of {', '.join(o['choices'])}")
+                    if o.get("choices") and words[0] == o.get("default"):
+                        continue                  # the script's own default: keep the command short
                     cmd += ([o["flag"]] if o.get("flag") else []) + words
             elif v:
                 cmd.append(o["flag"])
+        blocked = None
+        if blockers and compute_running(ctx["config"]):
+            blocked = (f"{blockers[0]} is refused while a compute job of this run is running (here or on SLURM): "
+                       "the chunk ids would change under it. Wait for it to end, or cancel it first.")
         if b.get("preview"):
-            return self._json({"ok": True, "cmd": shlex.join(cmd)})
+            return self._json({"ok": True, "cmd": shlex.join(cmd), "confirm": confirm, "blocked": blocked})
+        if blocked:
+            return self._err(blocked)
         rundir = Path(ctx["rundir"])
         wd = Path(ctx.get("workdir", rundir))
         watch = [str(rundir), str(wd)] + ["R:" + str(wd / d) for d in ("slurm", "results", "logs", "chunks")] + \
@@ -699,6 +731,30 @@ class H(SR.SingleRunsAPI, BaseHTTPRequestHandler):
             ST.save_prefs({"recent_runs": [info["config_path"]] + [r for r in rec if r != info["config_path"]][:11]})
         self._json({"ok": bool(info.get("config")), **info,
                     **({} if info.get("config") else {"error": info.get("error") or "no campaign config (*.toml) in this folder"})})
+
+    def api_post_runs_settings(self, q):
+        """change [cluster] settings of a run after creation (backup + history entry)"""
+        b = json.loads(self._body())
+        cp = Path(b.get("config") or "").expanduser()
+        if not cp.is_file():
+            return self._err("no such config file")
+        why = file_untrusted(cp)
+        if why:
+            return self._err(f"not changing {cp}: {why}")
+        try:
+            out = R.update_settings(cp, b.get("changes") or {}, b.get("note", ""))
+        except ValueError as e:
+            return self._err(str(e))
+        self._json({"ok": True, **out})
+
+    def api_post_runs_adopt(self, q):
+        """write run_record.json for a run made without the app (keeps a history from now on)"""
+        b = json.loads(self._body())
+        cp = Path(b.get("config") or "").expanduser()
+        if not cp.is_file():
+            return self._err("no such config file")
+        rec = R.adopt_run(cp)
+        self._json({"ok": True, "adopted": bool(rec.get("adopted")), "record": rec})
 
     def api_get_runs_check(self, q):
         f = Path((q.get("folder") or [""])[0]).expanduser()

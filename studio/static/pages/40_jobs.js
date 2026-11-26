@@ -25,7 +25,7 @@
       t.append(h("thead", {}, h("tr", {}, ["state", "job", "started", "duration"].map((x) => h("th", {class: "l"}, x)))));
       const tb = h("tbody", {});
       for (const j of r.jobs) {
-        const pill = h("span", {class: "pill " + ({done: "ok", failed: "bad", lost: "warn", cancelled: "warn"}[j.state] || "run")}, j.state);
+        const pill = S.pill({done: "ok", failed: "bad", lost: "warn", cancelled: "warn"}[j.state] || "run", j.state);
         tb.append(h("tr", {}, h("td", {class: "l"}, pill),
           h("td", {class: "l"}, h("a", {href: "javascript:void 0", onclick: () => showJob(j.id, j.title)}, j.title),
             j.slurm_ids.length ? h("span", {class: "small muted"}, " · SLURM " + j.slurm_ids.join(", ")) : null),
@@ -34,6 +34,8 @@
           h("td", {}, !["running", "starting"].includes(j.state)
             ? h("button", {class: "small", title: "delete this job's record and log", onclick: async () => { await S.api("/api/jobs/delete", {id: j.id}); drawList(); }}, "✕")
             : j.state === "running" ? h("button", {class: "small danger", onclick: async () => {
+              if (!await S.confirm({title: "Stop this job?", danger: true, ok: "Stop job", icon: "stop",
+                body: `${j.title}: the process and its children get a stop signal. Finished structures are kept. Jobs it already submitted to SLURM keep running (scancel them below).`})) return;
               const c = await S.api("/api/jobs/cancel", {id: j.id}); S.toast(c.ok ? "stop signal sent" : "could not stop"); setTimeout(drawList, 1200); }}, "Stop") : null)));
       }
       t.append(tb);
@@ -53,7 +55,7 @@
         const c = h("input", {type: "checkbox", onchange: () => (c.checked ? sel.add(j.id) : sel.delete(j.id))});
         const known = r.known_ids.includes(j.id.split("_")[0]);
         tb.append(h("tr", {}, h("td", {class: "l"}, c), h("td", {class: "l mono"}, j.id, known ? " ★" : ""), h("td", {class: "l"}, j.name),
-          h("td", {class: "l"}, h("span", {class: "pill " + (j.state === "RUNNING" ? "run" : j.state === "PENDING" ? "warn" : "")}, j.state)),
+          h("td", {class: "l"}, S.pill(j.state === "RUNNING" ? "run" : j.state === "PENDING" ? "clock" : "idle", j.state)),
           h("td", {class: "l"}, j.time), h("td", {class: "l"}, j.limit), h("td", {class: "l"}, j.nodes), h("td", {class: "l small"}, j.reason)));
       }
       t.append(tb);
@@ -61,6 +63,8 @@
         h("div", {class: "tablewrap"}, t),
         h("div", {class: "row", style: {marginTop: "6px"}}, h("button", {class: "danger", onclick: async () => {
           if (!sel.size) return S.toast("tick jobs first");
+          if (!await S.confirm({title: `scancel ${sel.size} job(s)?`, danger: true, ok: "scancel", icon: "xcircle",
+            body: `${[...sel].join(", ")} are cancelled on the cluster. Finished structures are kept; running ones are computed again on the next submission.`})) return;
           const o = await S.api("/api/slurm/cancel", {ids: [...sel]});
           S.toast("scancel: " + o.output); drawSlurm();
         }}, "scancel selected")));

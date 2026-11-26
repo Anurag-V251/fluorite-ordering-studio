@@ -65,19 +65,87 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     check(fs.existsSync(path.join(W, "runs_ui", "run1", "campaign.toml")), "Create run made campaign.toml");
     await p.screenshot({path: path.join(W, "ui_pipeline.png"), fullPage: true});
 
-    console.log("== stages by clicking");
-    for (const [num, btn] of [["1.", "Run"], ["2.", "Run here"], ["3.", "Run"], ["4.", "Run all unfinished chunks here"], ["6.", "Run here"]]) {
-      const card = p.locator(".card", {has: p.locator(`b:text-matches("^${num.replace(".", "\\.")} ")`)}).first();
-      await card.locator(`button:text-is("${btn}")`).click();
+    console.log("== stages by clicking: pipeline -> side panel -> run");
+    await p.waitForSelector(".pipeline button.sbtn");
+    check(await p.locator(".pipeline .stage").count() === 7, "pipeline with 7 stages");
+    for (const key of ["check", "prepare", "plan", "compute", "merge"]) {
+      await p.click(`button.sbtn[data-stage=${key}]`);
+      await p.waitForSelector(".slide.on .slide-f button[data-run]");
+      await p.waitForFunction(() => /\$ /.test((document.querySelector(".slide.on .cli") || {}).textContent || ""));
+      if (key === "plan") {
+        check(await p.locator('.slide.on input[type=radio][data-flag=""]').isChecked(), "plan: 'First plan' chosen when there is no plan yet");
+        await p.screenshot({path: path.join(W, "ui_panel_plan.png")});
+      }
+      await p.click(".slide.on .slide-f button[data-run]");
       let st = "";
       for (let i = 0; i < 240; i++) {
-        const t = (await p.locator(".jobcard .pill").first().textContent().catch(() => "")) || "";
+        const t = (await p.locator(".slide.on .jobcard .pill").first().textContent().catch(() => "")) || "";
         if (/done|failed|lost|cancelled/.test(t)) { st = t; break; }
         await sleep(1000);
       }
-      check(st.startsWith("done"), `stage ${num} ${btn}: ${st}`);
-      await p.click("text=Clear finished cards");
+      check(st.startsWith("done"), `stage ${key} from its panel: ${st}`);
+      await p.keyboard.press("Escape");
+      await p.waitForSelector(".slide", {state: "detached"});
     }
+
+    console.log("== panel options: compute on SLURM, re-pack, rerun");
+    await p.click("button.sbtn[data-stage=compute]");
+    await p.click('.slide.on .seg label:has-text("Write SLURM script only")');
+    await p.waitForFunction(() => /slurm compute/.test(document.querySelector(".slide.on .cli").textContent));
+    check(await p.locator('.slide.on input[data-flag="--unfinished"]').isChecked() &&
+      /--unfinished/.test(await p.locator(".slide.on .cli").textContent()), "SLURM compute: 'only unfinished chunks' ticked by default and in the command");
+    await p.keyboard.press("Escape"); await p.waitForSelector(".slide", {state: "detached"});
+    await p.click("button.sbtn[data-stage=plan]");
+    await p.waitForSelector(".slide.on .cli");
+    check(await p.locator('.slide.on input[type=radio][data-flag="--append"]').isChecked(), "plan: 'Add new structures' is the default once a plan exists");
+    await p.check('.slide.on input[type=radio][data-flag="--force"]');
+    await p.waitForFunction(() => /plan --force/.test(document.querySelector(".slide.on .cli").textContent));
+    await p.click(".slide.on .slide-f button[data-run]");
+    await p.waitForSelector(".dlg", {timeout: 5000});
+    check(/chunk ids change/.test(await p.locator(".dlg .body").textContent()), "re-pack asks for confirmation first");
+    await p.click('.dlg button:text-is("Cancel")');
+    await p.waitForSelector(".dlg", {state: "detached"});
+    check(await p.locator(".slide.on .jobcard").count() === 0, "cancelled: nothing started");
+    await p.keyboard.press("Escape"); await p.waitForSelector(".slide", {state: "detached"});
+    await p.click("button.sbtn[data-stage=rerun]");
+    await p.waitForSelector(".slide.on select[data-flag='--what']");
+    await p.selectOption(".slide.on select[data-flag='--what']", "imaginary");
+    await p.fill(".slide.on input[data-flag='--freq-window']", "-0.5 0");
+    await p.waitForFunction(() => /--what imaginary --freq-window -0\.5 0/.test(document.querySelector(".slide.on .cli").textContent));
+    check(true, "rerun options (which flags, frequency window) shown in the command");
+    await p.screenshot({path: path.join(W, "ui_panel_rerun.png")});
+    await p.keyboard.press("Escape"); await p.waitForSelector(".slide", {state: "detached"});
+
+    console.log("== attention, jobs, log drawer, settings");
+    check(await p.locator("#attention").count() === 1, "attention card shown");
+    check(await p.locator("#runjobs tr[data-job]").count() >= 5, "jobs of this run listed: " + await p.locator("#runjobs tr[data-job]").count());
+    if (!(await p.locator(".drawer.open").count())) await p.click(".drawer .tog");   // starting a stage opens it already
+    await p.waitForSelector(".drawer.open .log > div", {timeout: 10000});
+    const nl = await p.locator(".drawer .log > div").count();
+    await p.click('.drawer .lvl button[data-l="ERROR"]');
+    const ne = await p.locator(".drawer .log > div").count();
+    check(nl > 1 && ne <= nl, `log drawer: ${nl} lines, ${ne} at level Error`);
+    await p.click('.drawer .lvl button[data-l="all"]');
+    await p.click(".drawer .tog");
+    check(await p.locator(".drawer.open").count() === 0, "log drawer folds");
+    const toml = path.join(W, "runs_ui", "run1", "campaign.toml");
+    await p.click('button:has-text("Edit")');
+    await p.waitForSelector('.slide.on input[data-k="walltime"]');
+    await p.fill('.slide.on input[data-k="walltime"]', "00:15:00");
+    await p.click('.slide.on button:has-text("Save settings")');
+    await p.waitForSelector(".slide", {state: "detached"});
+    check(/00:15:00/.test(fs.readFileSync(toml, "utf8")) && fs.readdirSync(path.dirname(toml)).some((f) => /^campaign\..*\.bak$/.test(f)),
+      "cluster settings edited from the page (campaign.toml changed, backup kept)");
+    const ap = p.locator("[data-apply]").first();
+    if (await ap.count()) {
+      await ap.click();
+      await p.waitForSelector(".dlg");
+      await p.click('.dlg button:text-is("Change setting")');
+      await p.waitForSelector(".dlg", {state: "detached"});
+      await sleep(800);
+      const sps = /sec_per_structure\s*=\s*([\d.]+)/.exec(fs.readFileSync(toml, "utf8"));
+      check(sps && Number(sps[1]) !== 2, "measured sec_per_structure applied with one button: " + (sps && sps[1]));
+    } else check(false, "no 'use measured' button");
 
     console.log("== run dashboard: state strip, next step, theme");
     await p.click('button:has-text("Refresh")');

@@ -64,7 +64,7 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.4.0        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.5.0        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
@@ -81,7 +81,7 @@ What changed in each release, and how to go back to an older one: `CHANGELOG.md`
 |---|---|
 | **Results** | Point it at a folder and it scans it. It reports compositions, x, orderings, whether each composition is prepared, structures per phase, relaxed files, F done, flagged (imaginary modes / unconverged relaxation), failed, not run, chunk progress, the lowest-F phase per composition, mapping statistics (rms shift, strain S, equally good variants, IDENTICAL count), the merge report and the logs. Temperature selector, auto-refresh. |
 | **Plots** | Every plot script (F vs x HTML, c/a vs x HTML, F vs composition, F vs Ce hist, P(F), cell annotations, cell distributions). The option form is built from the script's own `argparse`, so new options appear by themselves. The result is shown in the page (HTML in a frame, PNG inline), with the equivalent command line. Options are remembered per plot. |
-| **Pipeline** | The run dashboard. Header with a run switcher; a state strip with the counts (clean / flagged / failed / not run, chunks, core-hours used vs planned) and the **Next step**; the stages: dry-run → prepare → plan → compute → status → merge → rerun flagged, each run here, written as a SLURM script, or submitted. Opens the run you used last; *Runs* lists all runs and opens any run folder or campaign workdir (also runs made without the app). |
+| **Pipeline** | The run dashboard. Header with a run switcher; a state strip with the counts (clean / flagged / failed / not run, chunks, core-hours used vs planned) and the **Next step**; the 7-stage **pipeline** (dry-run → prepare → plan → compute → status → merge → rerun flagged) with a live state per stage: click a stage for its side panel (facts, where to run: here / SLURM / script only, its options, the equivalent command, then its output); the **Attention** list (recovery actions in the order to do them, one button each); **Cluster settings** (edit them after creation, or apply the measured sec_per_structure with one button: campaign.toml is backed up and the change goes into the history); **Jobs** of the run (here and on SLURM: tasks, chunk, structures done, walltime used with the projected end, Stop / scancel after a confirmation); a **log drawer** at the bottom with the newest job's log and a level filter. Opens the run you used last; *Runs* lists all runs and opens any run folder or campaign workdir (also runs made without the app; *Keep a history* adopts them). |
 | **New run** | Host POSCAR (= starting phase), host/dopant species, compositions, target phase templates ("phases for transformation", same cation ordering), all-variants, NEP model, T, relaxation, phonon and cluster settings. Writes a reproducible run folder. |
 | **Jobs** | Every command started from the app, with a live log and the files it wrote. Jobs keep running if you close the page or stop the server. Your SLURM queue (`squeue`), `sacct` of jobs submitted from the app, and `scancel`. |
 | **Single runs** | A few POSCARs (upload from your computer, pick on the server, or a whole folder) and one `nep.txt`: NEP relaxation, harmonic free energy at one temperature or over a ramp, XRD with optional reference structures, and comparison plots with a ΔF reference you choose (a structure, or the lowest F at each T). Runs here or on SLURM; results, figures and CSVs on the page, re-plot with another reference. Details below. |
@@ -212,7 +212,14 @@ cmd = ["{python}", "/path/my_driver.py", "{config}", "--submit"]
 flag = "--unfinished"
 label = "only unfinished"
 value = false
+default = true                       # start value (also when a caller leaves it out)
+help = "one line under the option"
 ```
+
+More option forms: `value = true` + `choices = ["a", "b"]` (a drop-down), `kind = "choice"` with
+`[[options.choices]] flag = "--x" label = "..." help = "..."` (radio buttons, one flag or none; a choice can have
+`confirm = "..."` and `block_if_compute_running = true`), and `confirm = "..."` on a `[modes.X]` (asked before it
+runs). See `studio/modules.py` and `studio/modules/stage_30_plan.toml`.
 
 Placeholders: `{python} {scripts} {config} {workdir} {rundir} {studio}`. Pages are separate files in
 `studio/static/pages/`. A new `NN_name.js` that calls `Studio.registerPage({...})` adds a page.
@@ -262,6 +269,12 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.5.0
+
+* Run dashboard, part 2: pipeline with a side panel per stage, Attention list, cluster settings editable after
+  creation, jobs panel with live SLURM tasks, log drawer, confirmations before submit / re-pack / Stop / scancel.
+  Details and how to revert: `CHANGELOG.md`.
 
 ## Changes in 1.4.0
 

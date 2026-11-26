@@ -9,3 +9,4 @@ cmd = ["{python}", "{scripts}/campaign.py", "{config}", "merge"]
 [modes.slurm]
 label = "Submit SLURM job"
 cmd = ["{python}", "{scripts}/campaign.py", "{config}", "slurm", "merge", "--submit"]
+confirm = "Submit a merge job to SLURM?"

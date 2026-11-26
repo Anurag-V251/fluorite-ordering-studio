@@ -397,6 +397,8 @@
     const log = h("pre", {class: "log"}, "");
     const outs = h("div", {});
     const cancel = h("button", {class: "danger", onclick: async () => {
+      if (!await S.confirm({title: "Stop this job?", danger: true, ok: "Stop job", icon: "stop",
+        body: (opts.title || "This job") + ": the process and its children get a stop signal. Finished results are kept; a restart skips them."})) return;
       const r = await S.api("/api/jobs/cancel", {id: jid});
       S.toast(r.ok ? "stop signal sent" : "could not stop (already finished?)");
     }}, "Stop");
