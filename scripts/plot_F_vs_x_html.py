@@ -24,8 +24,10 @@ y axis (--ref, also a control in the page):
   formation    F_form = F - [(1-x) F(x=0) + x F(x=1)], formation (mixing) free energy per atom from the pure end
                members (x = Ce fraction of the cations, MO2 at every x).  --ends (page: "end members"):
                same (default, each phase its own end members), lowest (lowest-F phase of the CSV at that end),
-               or a phase name; one value or X0,X1.  Needs usable x = 0 and x = 1 rows; the page says which is
-               missing.  Panel (b) stays the plain F difference between peaks.
+               a phase name, or a fixed F in eV/atom (--ends=same,-8.2034); one value or A,B.
+               --end-x A B (page: "end x (%)"): other end compositions, default 0 100; the reference is then the
+               straight line through F(A) and F(B), extended outside A..B.  Needs usable rows at the end
+               compositions; the page says which is missing.  Panel (b) stays the plain F difference between peaks.
   mixing       F - line between the lowest F (shown phases) of the lowest and highest composition in the data
   global       F - lowest F overall
 
@@ -120,9 +122,12 @@ def main():
     p = ap.add_argument_group("start values of the page controls")
     p.add_argument("--ref", choices=["composition", "formation", "mixing", "global"], default="composition",
                    help="y axis: composition (default), formation (formation free energy, see --ends), mixing, global")
-    p.add_argument("--ends", default="same", metavar="X0[,X1]",
-                   help="--ref formation: end members at x = 0 and x = 1: same (each phase its own, default), "
-                        "lowest (lowest-F phase at that end) or a phase name; one value or two as X0,X1")
+    p.add_argument("--ends", default="same", metavar="A[,B]",
+                   help="--ref formation: end points: same (each phase its own, default), lowest (lowest-F phase at "
+                        "that end), a phase name or a fixed F in eV/atom; one value or two as A,B "
+                        "(write --ends=-9.38,-8.20 for numbers)")
+    p.add_argument("--end-x", type=float, nargs=2, default=[0.0, 100.0], metavar=("A", "B"),
+                   help="--ref formation: end compositions, %% of cations (default 0 100 = pure end members)")
     p.add_argument("--xrange", type=float, nargs=2, metavar=("LO", "HI"), help="composition range, %% of cations")
     p.add_argument("--phases", nargs="+", help="phases ticked at the start (default: all)")
     p.add_argument("--label", action="append", default=[], metavar="PHASE=TEXT", help="legend text of a phase")
@@ -162,12 +167,20 @@ def main():
     ends = [t.strip() for t in a.ends.split(",")]
     ends = ends * 2 if len(ends) == 1 else ends
     if len(ends) != 2 or not all(ends):
-        sys.exit(f"--ends needs same, lowest or a phase, or two of them as X0,X1 (got {a.ends!r})")
+        sys.exit(f"--ends needs same, lowest, a phase or a fixed F (eV/atom), or two of them as A,B (got {a.ends!r})")
+    end_val = [None, None]
+    for i, e in enumerate(ends):
+        try:
+            end_val[i] = float(e); ends[i] = "value"
+        except ValueError:
+            pass
+    if not a.end_x[0] < a.end_x[1]:
+        sys.exit(f"--end-x: the first composition must be below the second (got {a.end_x[0]:g} and {a.end_x[1]:g})")
     present = {q for (x, q) in data}
     phases = [q for q in PHASE_STYLE if q in present] + sorted(present - set(PHASE_STYLE))
     if a.phases and any(q not in phases for q in a.phases):
         sys.exit(f"phases {[q for q in a.phases if q not in phases]} not in the CSV (have {phases})")
-    bad = sorted({e for e in ends if e not in ("same", "lowest") and e not in phases})
+    bad = sorted({e for e in ends if e not in ("same", "lowest", "value") and e not in phases})
     if bad:
         sys.exit(f"--ends: phase(s) {bad} not in the CSV (have {phases}; or use same / lowest)")
     style, k = {}, 0
@@ -234,9 +247,8 @@ def main():
                      color=style[q]["color"], marker=style[q]["marker"]) for q in phases],
         fit=dict(max_components=a.max_components, components=a.components, min_peak=a.min_peak,
                  bootstrap=a.bootstrap, seed=a.seed),
-        endflags={f"{round(100 * x, 6):g}|{phases.index(q)}": n for (x, q), n in nflag.items()
-                  if q in phases and (x < 1e-9 or x > 1 - 1e-9)},
-        init=dict(ref=a.ref, ends=ends, layout=a.layout, style=a.style, norm=a.norm, side=a.side, font=a.font, width=a.width,
+        endflags={f"{round(100 * x, 6):g}|{phases.index(q)}": n for (x, q), n in nflag.items() if q in phases},
+        init=dict(ref=a.ref, ends=ends, end_val=end_val, end_x=a.end_x, layout=a.layout, style=a.style, norm=a.norm, side=a.side, font=a.font, width=a.width,
                   dodge=a.dodge, tail=a.tail, bin=a.bin, xrange=a.xrange, phases=a.phases, ylim=a.ylim,
                   ylim_b=a.ylim_b, no_fit=a.no_fit, no_bars=a.no_bars, no_lines=a.no_lines, show_min=a.show_min,
                   no_panel_b=a.no_panel_b, same_y=a.same_y, fraction=a.fraction, dopant=a.dopant),
@@ -300,7 +312,11 @@ h2{font-size:12px;margin:14px 0 0;color:var(--ink2);font-weight:600;text-transfo
     <option value="formation">formation F</option>
     <option value="mixing">F − line between the ends</option>
     <option value="global">F − lowest F overall</option></select></div>
-  <div class="row" id="endsrow"><label>end members<br>x = 0 / x = 1</label><div class="two"><select id="end0" title="end member at x = 0"></select><select id="end1" title="end member at x = 1"></select></div></div>
+  <div id="endsbox">
+  <div class="row"><label>end x (%)</label><div class="two"><input type="number" id="ex0" step="any" title="first end composition, % of cations"><input type="number" id="ex1" step="any" title="second end composition, % of cations"></div></div>
+  <div class="row"><label>end points</label><div class="two"><select id="end0" title="end point at the first end composition"></select><select id="end1" title="end point at the second end composition"></select></div></div>
+  <div class="row" id="evrow"><label>fixed F (eV/atom)</label><div class="two"><input type="number" id="ev0" step="any" placeholder="F at first end"><input type="number" id="ev1" step="any" placeholder="F at second end"></div></div>
+  </div>
   <div class="row"><label>x range (%)</label><div class="two"><input type="number" id="xlo" step="any" placeholder="from"><input type="number" id="xhi" step="any" placeholder="to"></div></div>
   <div class="row"><label>phases</label><div class="checks" id="phases" style="margin-top:0"></div></div>
 </fieldset>
@@ -365,7 +381,9 @@ function setControls(I){
   const pair = (a, b, v) => { $(a).value = v ? v[0] : ""; $(b).value = v ? v[1] : ""; };
   pair("xlo", "xhi", I.xrange); pair("ylo", "yhi", I.ylim); pair("yblo", "ybhi", I.ylim_b);
   $("dopant").value = I.dopant;
-  $("end0").value = I.ends[0]; $("end1").value = I.ends[1]; showEnds();
+  $("end0").value = I.ends[0]; $("end1").value = I.ends[1];
+  $("ex0").value = I.end_x[0]; $("ex1").value = I.end_x[1];
+  $("ev0").value = I.end_val[0] === null ? "" : I.end_val[0]; $("ev1").value = I.end_val[1] === null ? "" : I.end_val[1]; showEnds();
   D.phases.forEach((q, i) => { $("ph" + i).checked = !I.phases || I.phases.includes(q.id); $("lb" + i).value = q.label; });
 }
 function state(){
@@ -380,9 +398,14 @@ function state(){
   s.labels = D.phases.map((q, i) => $("lb" + i).value.trim() || q.label);
   s.dopant = $("dopant").value.trim() || "Ce";
   s.ends = [$("end0").value, $("end1").value];
+  s.end_x = [num("ex0"), num("ex1")]; s.end_val = [num("ev0"), num("ev1")];
   return s;
 }
-function showEnds(){ $("endsrow").style.display = $("ref").value === "formation" ? "" : "none"; }
+function showEnds(){
+  $("endsbox").style.display = $("ref").value === "formation" ? "" : "none";
+  $("evrow").style.display = $("end0").value === "value" || $("end1").value === "value" ? "" : "none";
+  $("ev0").disabled = $("end0").value !== "value"; $("ev1").disabled = $("end1").value !== "value";
+}
 
 // ---------------------------------------------------------------- numerics (same rules as the Python script)
 function pct(sorted, q){                       // numpy percentile, linear interpolation
@@ -498,27 +521,59 @@ function build(s){
   if (s.ref === "global"){ const m = Math.min(...all.map(d => d.low)); refF = x => m; }
   else if (s.ref === "composition") refF = x => lowAt[x];
   else if (s.ref === "formation"){
-    // F_form = F - [(1 - x) F(x=0) + x F(x=1)]; ends from every phase of the file, also phases not shown
+    // F_form = F - line through (xA, F_A) and (xB, F_B); default xA = 0, xB = 100 %: F - [(1 - x) F(0) + x F(1)].
+    // End points from every phase of the file, also phases not shown.
     const pid = id => D.phases.findIndex(q => q.id === id);
-    const endF = (x0, choice, p) => {
-      const cand = D.dists.filter(d => Math.abs(d.x - x0) < 1e-9 && (choice === "lowest" || d.p === (choice === "same" ? p : pid(choice))));
-      if (!cand.length){
-        const q = choice === "lowest" ? -1 : (choice === "same" ? p : pid(choice));
-        const nf = Object.entries(D.endflags).filter(([k, v]) => { const [xx, pp] = k.split("|"); return Math.abs(+xx - x0) < 1e-9 && (q < 0 || +pp === q); }).reduce((a, [k, v]) => a + v, 0);
-        throw `formation F: no usable x = ${x0 / 100} row for ${q < 0 ? "any phase" : "phase " + D.phases[q].id}` +
-          (nf && !D.flagged_in ? ` (${nf} flagged rows left out: write the page again with --include-flagged)` : "") +
-          `; compositions in the file: ${g6(Math.min(...D.dists.map(d => d.x)))} .. ${g6(Math.max(...D.dists.map(d => d.x)))} %. Choose other end members or another y axis.`;
+    if (s.end_x[0] === null || s.end_x[1] === null) throw "formation F: give both end compositions (end x)";
+    if (!(s.end_x[0] < s.end_x[1])) throw "formation F: the first end composition must be below the second";
+    const fileX = [...new Set(D.dists.map(d => d.x).concat(Object.keys(D.endflags).map(k => +k.split("|")[0])))].sort((a, b) => a - b);
+    const matchX = x0 => {
+      const b = fileX.reduce((a, x) => Math.abs(x - x0) < Math.abs(a - x0) ? x : a, fileX[0]);
+      if (Math.abs(b - x0) > 0.05){
+        const near = [...fileX].sort((a, c) => Math.abs(a - x0) - Math.abs(c - x0)).slice(0, 3).sort((a, c) => a - c).map(g6).join(", ");
+        throw `formation F: no composition at ${g6(x0)} % in the file (nearest: ${near} %). Change end x, or give a fixed F for that end.`;
       }
+      return b;
+    };
+    const xe = [0, 1].map(i => s.ends[i] === "value" ? s.end_x[i] : matchX(s.end_x[i]));
+    const skipped = [new Set(), new Set()];
+    const endF = (i, choice, p) => {
+      const x0 = xe[i];
+      if (choice === "value"){
+        if (s.end_val[i] === null) throw `formation F: type the fixed F (eV/atom) of the ${i ? "second" : "first"} end point`;
+        return [1000 * s.end_val[i], -1];
+      }
+      const cand = D.dists.filter(d => Math.abs(d.x - x0) < 1e-6 && (choice === "lowest" || d.p === (choice === "same" ? p : pid(choice))));
+      const flagsAt = q => Object.entries(D.endflags).filter(([k, v]) => { const [xx, pp] = k.split("|"); return Math.abs(+xx - x0) < 1e-6 && (q < 0 || +pp === q); }).reduce((a, [k, v]) => a + v, 0);
+      if (!cand.length){
+        const q = choice === "lowest" ? -1 : (choice === "same" ? p : pid(choice)), nf = flagsAt(q);
+        throw `formation F: no usable row at x = ${g6(x0)} % for ${q < 0 ? "any phase" : "phase " + D.phases[q].id}` +
+          (nf && !D.flagged_in ? ` (${nf} flagged rows left out: write the page again with --include-flagged)` : "") +
+          `; compositions in the file: ${g6(fileX[0])} .. ${g6(fileX[fileX.length - 1])} %. Choose other end points, other end x, or a fixed F.`;
+      }
+      if (choice === "lowest" && !D.flagged_in)
+        D.phases.forEach((q, j) => { if (flagsAt(j) && !D.dists.some(d => Math.abs(d.x - x0) < 1e-6 && d.p === j)) skipped[i].add(j); });
       const b = cand.reduce((a, d) => d.low < a.low ? d : a);
       return [b.low, b.p];
     };
     const E = {};
-    ph.forEach(p => { E[p] = [endF(0, s.ends[0], p), endF(100, s.ends[1], p)]; });
-    refF = (x, p) => E[p][0][0] + x / 100 * (E[p][1][0] - E[p][0][0]);
-    const word = i => s.ends[i] === "same" ? "same phase" : s.ends[i] === "lowest" ?
-      "lowest F = " + [...new Set(ph.map(p => s.labels[E[p][i][1]]))].join("/") : s.labels[D.phases.findIndex(q => q.id === s.ends[i])];
-    endNote = "F_form = F − [(1−x) F(x=0) + x F(x=1)]; end members: " +
-      (s.ends[0] === "same" && s.ends[1] === "same" ? "same phase at both ends" : `x = 0: ${word(0)}, x = 1: ${word(1)}`);
+    ph.forEach(p => { E[p] = [endF(0, s.ends[0], p), endF(1, s.ends[1], p)]; });
+    const [xa, xb] = xe;
+    refF = (x, p) => E[p][0][0] + (x - xa) / (xb - xa) * (E[p][1][0] - E[p][0][0]);
+    const word = i => {
+      const c = s.ends[i];
+      if (c === "value") return `fixed F = ${g6(s.end_val[i])} eV/atom`;
+      if (c === "same") return "same phase";
+      if (c === "lowest"){
+        const sk = [...skipped[i]].map(j => s.labels[j]);
+        return "lowest F = " + [...new Set(ph.map(p => s.labels[E[p][i][1]]))].join("/") + (sk.length ? ` (${sk.join("/")} flagged, left out)` : "");
+      }
+      return s.labels[pid(c)];
+    };
+    const pure = Math.abs(xa) < 1e-9 && Math.abs(xb - 100) < 1e-9;
+    const A = pure ? "x=0" : `x=${g6(xa)}%`, B = pure ? "x=1" : `x=${g6(xb)}%`;
+    endNote = (pure ? "F_form = F − [(1−x) F(x=0) + x F(x=1)]" : `F_form = F − line through F(${A}) and F(${B})`) + "; end points: " +
+      (s.ends[0] === "same" && s.ends[1] === "same" ? "same phase at both ends" : `${A}: ${word(0)}, ${B}: ${word(1)}`);
   }
   else {
     const xa = xsAll[0], xb = xsAll[xsAll.length - 1];
@@ -706,7 +761,11 @@ function build(s){
 function command(s){
   const a = [];
   SE.forEach(k => { if (s[k] !== DEF[k]) a.push("--" + k, s[k]); });
-  if (s.ref === "formation" && !(s.ends[0] === "same" && s.ends[1] === "same")) a.push("--ends", s.ends[0] === s.ends[1] ? s.ends[0] : s.ends.join(","));
+  if (s.ref === "formation"){
+    const e = s.ends.map((c, i) => c === "value" ? g6(s.end_val[i] === null ? NaN : s.end_val[i]) : c);
+    if (!(e[0] === "same" && e[1] === "same")) a.push("--ends=" + (e[0] === e[1] ? e[0] : e.join(",")));
+    if (s.end_x[0] !== 0 || s.end_x[1] !== 100) a.push("--end-x", g6(s.end_x[0]), g6(s.end_x[1]));
+  }
   if (s.phases.length !== D.phases.length) a.push("--phases", ...s.phases.map(i => D.phases[i].id));
   if (s.xlo !== null && s.xhi !== null) a.push("--xrange", g6(s.xlo), g6(s.xhi));
   if (s.ylo !== null && s.yhi !== null) a.push("--ylim", g6(s.ylo), g6(s.yhi));
@@ -743,7 +802,7 @@ function start(){
   $("labels").innerHTML = D.phases.map((q, i) => `<div class="row"><label for="lb${i}">label of ${esc(q.id)}</label><input type="text" id="lb${i}"></div>`).join("");
   const f = D.fit;
   $("fitnote").textContent = `At most ${f.max_components} Gaussians` + (f.components.length ? `, forced: ${f.components.join(" ")}` : "") + `; min peak height ${f.min_peak}; bootstrap ${f.bootstrap}; seed ${f.seed}; flagged rows ${D.flagged_in ? "included" : "left out"}. To change these, write the page again with the fit options: python scripts/plot_F_vs_x_html.py ${D.csv} --max-components 2 ...`;
-  const eo = `<option value="same">same phase</option><option value="lowest">lowest F</option>` + D.phases.map(q => `<option value="${esc(q.id)}">${esc(q.id)}</option>`).join("");
+  const eo = `<option value="same">same phase</option><option value="lowest">lowest F</option><option value="value">fixed F…</option>` + D.phases.map(q => `<option value="${esc(q.id)}">${esc(q.id)}</option>`).join("");
   $("end0").innerHTML = eo; $("end1").innerHTML = eo;
   setControls(D.init);
   $("controls").addEventListener("input", e => { if (e.target.type === "range") e.target.nextElementSibling.textContent = fmt(e.target.value, e.target.id === "tail" ? 3 : 2); showEnds(); draw(); });

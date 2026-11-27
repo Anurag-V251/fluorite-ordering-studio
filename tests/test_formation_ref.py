@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_formation_ref.py - checks --ref formation of plot_F_vs_composition.py and plot_F_vs_x_html.py (~1 min, no NEP).
+test_formation_ref.py - checks --ref formation (--ends, --end-x) of plot_F_vs_composition.py and plot_F_vs_x_html.py (~1 min, no NEP).
 
 Mock merged CSVs F = (1-x) F0[phase] + x F1[phase] + W x(1-x) + noise for the four phases (parent = c, t, oIII, m)
 and three cell sizes (8, 32, 48 cations).  Checks: formation F of the end members is 0 (--ends same) or the end
@@ -91,17 +91,50 @@ with tempfile.TemporaryDirectory() as tmp:
             db = max(abs(float(v["dF_to_lowest_peak_meV_atom"]) - float(ref_b[k]["dF_to_lowest_peak_meV_atom"]))
                      for k, v in P.items())
             check(db < 1e-9, "   panel (b) dF identical to --ref composition")
-            check("end members" in r.stdout, "   reference printed")
+            check("end points" in r.stdout, "   reference printed")
         h = tmp / f"page{nhost}.html"
         r = run("plot_F_vs_x_html.py", c, "--ref", "formation", "--ends", "lowest", "--out", str(h))
         page = h.read_text() if h.exists() else ""
         check(r.returncode == 0 and '"ends":["lowest","lowest"]' in page and 'value="formation"' in page,
               f"{nhost} cations: HTML page written with formation preset")
 
+    # chosen end points: other end compositions, fixed F values
+    c = tmp / "mock32.csv"
+    od = tmp / "ex"
+    r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--ends", "lowest", "--end-x", "0", "50",
+            "--formats", "png", "--out-dir", str(od))
+    check(r.returncode == 0 and "line through F(x=0%) and F(x=50%)" in r.stdout, "--end-x 0 50: runs, says which line")
+    if r.returncode == 0:
+        P = peaks(od, c.stem)
+        low50 = min(float(v["lowest_meV_atom"]) for k, v in P.items() if k[0] == "0.500000")
+        low0 = min(float(v["lowest_meV_atom"]) for k, v in P.items() if k[0] == "0.000000")
+        check(abs(low50) < 1e-6 and abs(low0) < 1e-6, "   lowest ordering at both end compositions is exactly 0")
+    r1 = run("plot_F_vs_composition.py", c, "--ref", "formation", "--ends", "m,parent", "--formats", "png",
+             "--out-dir", str(tmp / "named"))
+    r2 = run("plot_F_vs_composition.py", c, "--ref", "formation", f"--ends={F0['m']},{F1['parent']}", "--formats",
+             "png", "--out-dir", str(tmp / "fixed"))
+    check(r1.returncode == 0 and r2.returncode == 0 and "fixed F" in r2.stdout and
+          peaks(tmp / "named", c.stem) == peaks(tmp / "fixed", c.stem),
+          "fixed end F values give the same result as the phases with those F")
+    r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--ends=same,-8.2", "--end-x", "0", "50",
+            "--formats", "png", "--out-dir", str(tmp / "mixfix"))
+    check(r.returncode == 0, "same phase at one end, fixed F at the other, --end-x 0 50")
+    r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--end-x", "0", "41", "--formats", "png",
+            "--out-dir", str(tmp / "e"))
+    check(r.returncode != 0 and "nearest" in r.stderr, "--end-x at a composition not in the CSV: error lists nearest")
+    r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--end-x", "50", "20", "--formats", "png",
+            "--out-dir", str(tmp / "e"))
+    check(r.returncode != 0 and "below" in r.stderr, "--end-x in the wrong order: error")
+    h = tmp / "page_ex.html"
+    r = run("plot_F_vs_x_html.py", c, "--ref", "formation", "--ends=lowest,-8.2", "--end-x", "0", "50", "--out", str(h))
+    page = h.read_text() if h.exists() else ""
+    check(r.returncode == 0 and '"ends":["lowest","value"]' in page and '"end_val":[null,-8.2]' in page
+          and '"end_x":[0.0,50.0]' in page, "HTML page: end x and fixed F preset")
+
     # end members missing / flagged
     c = tmp / "no1.csv"; mock(c, 16, 10, ["parent", "t", "oIII", "m"], drop=(1.0,))
     r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--formats", "png", "--out-dir", str(tmp / "e"))
-    check(r.returncode != 0 and "no usable x = 1 row" in r.stderr, "missing x = 1: clear error")
+    check(r.returncode != 0 and "no composition at 100 %" in r.stderr, "missing x = 1: clear error")
     c = tmp / "flag.csv"; mock(c, 16, 10, ["parent", "t", "oIII", "m"], flag_t0=True)
     r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--formats", "png", "--out-dir", str(tmp / "e"))
     check(r.returncode != 0 and "phase t" in r.stderr and "flagged" in r.stderr, "flagged t end member: error names it")
@@ -110,7 +143,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(r.returncode == 0, "   --include-flagged uses it")
     r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--ends", "lowest", "--formats", "png",
             "--out-dir", str(tmp / "e"))
-    check(r.returncode == 0, "   --ends lowest does not need it")
+    check(r.returncode == 0 and "left out flagged end points: t" in r.stdout, "   --ends lowest does not need it, warns")
     r = run("plot_F_vs_composition.py", c, "--ref", "formation", "--phases", "m", "oIII", "--formats", "png",
             "--out-dir", str(tmp / "e"))
     check(r.returncode == 0, "   not needed when t is not shown")

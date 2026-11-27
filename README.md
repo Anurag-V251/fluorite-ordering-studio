@@ -64,7 +64,7 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.6.0        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.6.1        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
@@ -240,6 +240,7 @@ refs/POSCAR_{c,t,oIII,m}     12-atom references       tests/test_studio.py  end-
 
 ```bash
 python3 tests/test_units.py     # ~15 s: create-time checks, stop/kill, SLURM ids, scan rows
+python3 tests/test_formation_ref.py  # ~45 s: --ref formation of the F vs x plots (--ends, --end-x, fixed F, errors)
 python3 tests/test_studio.py    # ~5 min, no NEP / cluster: mock calorine (Einstein crystal), fake sbatch
 node tests/test_ui.js           # ~3 min, after test_studio.py: clicks through the page in Chromium (Playwright)
 bash tests/test_campaign.sh     # the campaign.py test, as before
@@ -269,6 +270,13 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.6.1
+
+* F vs x plots, `--ref formation`: you choose the end points. `--end-x A B` sets the end compositions (% of
+  cations, default 0 100); the reference is the straight line through F(A) and F(B). `--ends` also takes a fixed
+  F in eV/atom (e.g. `--ends=same,-8.2034` for a separately converged end member). `--ends lowest` now says which
+  flagged end points it left out. The interactive page has the same controls (end x, end points, fixed F).
 
 ## Changes in 1.6.0
 

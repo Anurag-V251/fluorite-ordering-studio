@@ -1,6 +1,6 @@
 # Changelog
 
-Every release is a git tag (`v1.6.0`, `v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
+Every release is a git tag (`v1.6.1`, `v1.6.0`, `v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
 commits are kept, so `git log` shows what changed and when.
 
 ## How to go back to an earlier version
@@ -23,6 +23,19 @@ git push
 Run folders keep their own frozen copy of the scripts, so going back never changes a finished run.
 To use a new `campaign.py` in an old run folder, copy it into `<run>/scripts/` (the old copy can be put back the
 same way). Single runs freeze their scripts the same way (`<single run>/scripts/`).
+
+## 1.6.1 (2026-11-27) - choose the end points of the formation free energy
+
+* `plot_F_vs_composition.py` and `plot_F_vs_x_html.py`, `--ref formation`:
+  * `--end-x A B`: end compositions in % of cations (default 0 100). The reference is the straight line through
+    F(A) and F(B), extended outside A..B. A composition not in the CSV stops with the nearest ones listed.
+  * `--ends` takes a fixed F in eV/atom besides same / lowest / PHASE, e.g. `--ends=same,-8.2034` (write `--ends=`
+    when a value starts with "-"). Useful when an end member did not converge in the campaign.
+  * `--ends lowest` warns (terminal and figure note) when it left out a flagged end point.
+  * The HTML page: "end x (%)", "end points" (adds "fixed F…") and "fixed F (eV/atom)" controls.
+  * Other references and the default formation output are unchanged (peaks CSVs identical to 1.6.0).
+* Test: `tests/test_formation_ref.py` (now also end x, fixed F, warnings).
+* Revert: `git checkout v1.6.0` (or `git revert -m 1 <merge commit of the 1.6.1 PR>`).
 
 ## 1.6.0 (2026-11-26) - New run page, Results table and heatmap (GUI redesign, phase 3 of 3)
 
