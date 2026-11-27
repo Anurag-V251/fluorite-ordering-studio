@@ -104,7 +104,8 @@ python scripts/plot_free_energy.py         Ce_18.75/free_energy_300K.csv
 python scripts/plot_F_vs_composition.py    campaign/free_energy_300K_all.csv      # whole composition range
 python scripts/plot_F_vs_x_html.py         campaign/free_energy_300K_all.csv      # one HTML file: same plot with live controls, no server
 python scripts/plot_F_vs_composition.py    all.csv --ref formation               # formation free energy per atom, F - [(1-x)F(x=0) + x F(x=1)]
-                                           # --ends same (own phase, default) | lowest | PHASE0,PHASE1
+                                           # --ends same (own phase, default) | lowest | PHASE_A,PHASE_B | fixed F, e.g. --ends=same,-8.2034
+                                           # --end-x A B: other end compositions in % (default 0 100), e.g. --end-x 0 50
 python scripts/plot_cell_annotations.py    Ce_18.75/free_energy_300K.csv
 python scripts/plot_cell_distributions.py  Ce_18.75/free_energy_300K.csv
 ```

@@ -22,8 +22,13 @@ y axis (--ref):
                  lowest  the lowest-F phase of the CSV at each end (e.g. m-ZrO2 and c-CeO2), the same for every
                          phase: the thermodynamic formation free energy
                  PHASE   that phase, e.g. --ends m,parent
-               Needs x = 0 and x = 1 rows (status ok, not flagged unless --include-flagged); stops with a clear
-               message if one is missing.  Panel (b) and dF in the peaks CSV stay the plain F differences.
+                 NUMBER  a fixed F in eV/atom, e.g. from a separate, converged calculation:
+                         --ends=same,-8.2034  (write "--ends=" when the value starts with "-")
+               End compositions (--end-x A B, %% of cations, default 0 100): the reference is then the straight
+               line through F(A) and F(B) (e.g. --end-x 0 50 for formation from ZrO2 and Zr0.5Ce0.5O2); points
+               outside A..B use the same line, extended.
+               Needs usable rows at the end compositions (status ok, not flagged unless --include-flagged); stops
+               with a clear message if one is missing.  --ends lowest says which flagged end points it left out.  Panel (b) and dF in the peaks CSV stay the plain F differences.
   mixing       F - [(1-x) F_A + x F_B]   F_A, F_B = lowest F of the two end compositions (any phase).
                Removes the large linear trend between the end members, so phase differences become visible.
   composition  (default) F - lowest F of the same composition (any phase)
@@ -120,60 +125,105 @@ def load(path, include_flagged):
     return data, nflag, T
 
 
+def end_choice(t):
+    """same | lowest | PHASE | number (fixed F, eV/atom)"""
+    try:
+        return float(t)
+    except ValueError:
+        return t
+
+
 def parse_ends(text):
     parts = [t.strip() for t in text.split(",")]
     if len(parts) == 1:
         parts *= 2
     if len(parts) != 2 or not all(parts):
-        sys.exit(f"--ends needs same, lowest or a phase, or two of them as X0,X1 (got {text!r})")
-    return parts
+        sys.exit(f"--ends needs same, lowest, a phase or a fixed F (eV/atom), or two of them as A,B (got {text!r})")
+    return [end_choice(t) for t in parts]
 
 
-def formation_reference(data, nflag, ends, phases, include_flagged, name=str):
-    """F_ref(x, phase) = (1-x) F0 + x F1 (eV/atom).  data: (x, phase, F) of every phase; ends: [choice x=0, x=1]."""
+def match_x(x0, comps, opt="--end-x"):
+    """the composition of the CSV closest to x0 (fraction); within 0.05 % of the cations, else stop"""
+    if not comps:
+        sys.exit(f"{opt}: no compositions in the CSV")
+    best = min(comps, key=lambda c: abs(c - x0))
+    if abs(best - x0) > 5e-4:
+        near = sorted(comps, key=lambda c: abs(c - x0))[:3]
+        sys.exit(f"--ref formation: no composition at {100 * x0:g} % in the CSV (nearest: "
+                 f"{', '.join(f'{100 * c:g}' for c in sorted(near))} %).  Choose the end compositions with {opt}, "
+                 f"or give a fixed F for that end (--ends=same,-8.2034, eV/atom).")
+    return best
+
+
+def formation_reference(data, nflag, ends, phases, include_flagged, name=str, end_x=(0.0, 1.0)):
+    """F_ref(x, phase) = F_A + (x - x_A) / (x_B - x_A) * (F_B - F_A)  (eV/atom), a straight line through the two end
+    points (x_A, F_A), (x_B, F_B); with the default ends x_A = 0, x_B = 1 this is (1-x) F(0) + x F(1).
+    data: (x, phase, F) of every phase; ends: [choice A, choice B], each same | lowest | PHASE | number."""
     have = sorted({p for x, p, F in data} | {p for x, p in nflag})
     for c in ends:
-        if c not in ("same", "lowest") and c not in have:
-            sys.exit(f"--ends: phase {c!r} not in the CSV (have {have}; or use same / lowest)")
-    comps = sorted({x for x, p, F in data})
+        if isinstance(c, str) and c not in ("same", "lowest") and c not in have:
+            sys.exit(f"--ends: phase {c!r} not in the CSV (have {have}; or use same / lowest / a fixed F in eV/atom)")
+    comps = sorted({x for x, p, F in data} | {x for x, p in nflag})
+    xa, xb = end_x
+    if not xa < xb:
+        sys.exit(f"--end-x: the first composition must be below the second (got {100 * xa:g} and {100 * xb:g} %)")
+    xe = [xa if isinstance(ends[0], float) else match_x(xa, comps),
+          xb if isinstance(ends[1], float) else match_x(xb, comps)]
     def at(x0, p=None):
-        return [F for x, q, F in data if abs(x - x0) < 1e-9 and (p is None or q == p)]
+        return [(F, q) for x, q, F in data if abs(x - x0) < 1e-9 and (p is None or q == p)]
+    def nflagged(x0, p=None):
+        return sum(v for (x, q), v in nflag.items() if abs(x - x0) < 1e-9 and (p is None or q == p))
     def missing(x0, p):
-        nf = sum(v for (x, q), v in nflag.items() if abs(x - x0) < 1e-9 and (p is None or q == p))
+        nf = nflagged(x0, p)
         what = f"phase {p}" if p else "any phase"
         hint = f" ({nf} flagged rows left out: --include-flagged keeps them)" if nf and not include_flagged else ""
-        alt = ("choose other end members (--ends lowest or --ends PHASE0,PHASE1)" if ends != ["lowest", "lowest"]
-               else "use --ref mixing")
         span = f"; compositions in the CSV: {100 * comps[0]:g} .. {100 * comps[-1]:g} %" if comps else ""
-        sys.exit(f"--ref formation: no usable x = {x0:g} row for {what}{hint}{span}.  Pure end members are needed; "
-                 f"or {alt}.")
-    def end(x0, choice, p):
+        sys.exit(f"--ref formation: no usable row at x = {100 * x0:g} % for {what}{hint}{span}.  Choose other end "
+                 f"points (--ends lowest, --ends PHASE_A,PHASE_B, a fixed F such as --ends=same,-8.2, or --end-x).")
+    skipped = set()
+    def end(i, choice, p):
+        x0 = xe[i]
+        if isinstance(choice, float):
+            return choice, None
         if choice == "lowest":
             v = at(x0)
             if not v:
                 missing(x0, None)
-            best = min(v)
-            return best, next(q for x, q, F in data if abs(x - x0) < 1e-9 and F == best)
+            if not include_flagged:      # flagged phases at this end that were left out
+                skipped.update((i, q) for (x, q), n in nflag.items() if abs(x - x0) < 1e-9 and n and not at(x0, q))
+            return min(v)
         q = p if choice == "same" else choice
         v = at(x0, q)
         if not v:
             missing(x0, q)
-        return min(v), q
+        return min(v)
     ref = {}
     for p in phases:
-        (f0, q0), (f1, q1) = end(0.0, ends[0], p), end(1.0, ends[1], p)
-        ref[p] = (f0, f1, q0, q1)
+        (fa, qa), (fb, qb) = end(0, ends[0], p), end(1, ends[1], p)
+        ref[p] = (fa, fb, qa, qb)
     def word(i, choice):
+        if isinstance(choice, float):
+            return f"fixed F = {choice:g} eV/atom"
         if choice == "same":
             return "same phase"
         if choice == "lowest":
-            return "lowest F = " + "/".join(sorted({name(r[2 + i]) for r in ref.values()}))
+            w = "lowest F = " + "/".join(sorted({name(r[2 + i]) for r in ref.values()}))
+            sk = sorted(name(q) for j, q in skipped if j == i)
+            return w + (f" ({'/'.join(sk)} flagged, left out)" if sk else "")
         return name(choice)
-    note = ("F_form = F - [(1-x) F(x=0) + x F(x=1)]; end members: "
-            + (f"same phase at both ends" if ends == ["same", "same"]
-               else f"x = 0: {word(0, ends[0])}, x = 1: {word(1, ends[1])}"))
-    detail = "; ".join(f"{p}: F(0) = {r[0]:.6f} ({r[2]}), F(1) = {r[1]:.6f} ({r[3]}) eV/atom" for p, r in ref.items())
-    return (lambda x, p: ref[p][0] + x * (ref[p][1] - ref[p][0])), note, detail
+    xa, xb = xe
+    pure = abs(xa) < 1e-12 and abs(xb - 1) < 1e-12
+    A, B = (("x=0", "x=1") if pure else (f"x={100 * xa:g}%", f"x={100 * xb:g}%"))
+    formula = ("F_form = F - [(1-x) F(x=0) + x F(x=1)]" if pure else
+               f"F_form = F - line through F({A}) and F({B})")
+    note = (formula + "; end points: " +
+            ("same phase at both ends" if ends == ["same", "same"] else f"{A}: {word(0, ends[0])}, {B}: {word(1, ends[1])}"))
+    detail = "; ".join(f"{p}: F({A}) = {r[0]:.6f} ({r[2] or 'fixed'}), F({B}) = {r[1]:.6f} ({r[3] or 'fixed'}) eV/atom"
+                       for p, r in ref.items())
+    if skipped:
+        detail += "\n  warning: --ends lowest left out flagged end points: " + ", ".join(
+            f"{q} at {A if i == 0 else B}" for i, q in sorted(skipped)) + " (--include-flagged keeps them)"
+    return (lambda x, p: ref[p][0] + (x - xa) / (xb - xa) * (ref[p][1] - ref[p][0])), note, detail
 
 
 def reference(data, ref):
@@ -263,9 +313,12 @@ def main():
                     help="y axis: composition = F - lowest F at that x (default); formation = formation free energy "
                          "from the pure end members (see --ends); mixing = F - line between the lowest F of the end "
                          "compositions; global = F - lowest F overall")
-    ap.add_argument("--ends", default="same", metavar="X0[,X1]",
-                    help="--ref formation: end members at x = 0 and x = 1: same (each phase its own, default), "
-                         "lowest (lowest-F phase of the CSV at that end) or a phase name; one value or two as X0,X1")
+    ap.add_argument("--ends", default="same", metavar="A[,B]",
+                    help="--ref formation: end points at the two end compositions: same (each phase its own, "
+                         "default), lowest (lowest-F phase of the CSV at that end), a phase name, or a fixed F in "
+                         "eV/atom; one value or two as A,B (write --ends=-9.38,-8.20 for numbers)")
+    ap.add_argument("--end-x", type=float, nargs=2, default=[0.0, 100.0], metavar=("A", "B"),
+                    help="--ref formation: end compositions, %% of cations (default 0 100 = pure end members)")
     ap.add_argument("--phases", nargs="+", help="phases to show, in this order (default: all in the CSV)")
     ap.add_argument("--xrange", type=float, nargs=2, metavar=("LO", "HI"), help="composition range, %% of cations")
     ap.add_argument("--label", action="append", default=[], metavar="PHASE=TEXT", help="legend text of a phase")
@@ -340,7 +393,8 @@ def main():
     ends = parse_ends(a.ends)
     if a.ref == "formation":     # end members from every phase of the CSV (lowest / named phase need not be shown)
         refF, ref_note, ref_detail = formation_reference(data, nflag, ends, phases, a.include_flagged,
-                                                         lambda q: labels.get(q, PHASE_STYLE.get(q, {}).get("label", q)))
+                                                         lambda q: labels.get(q, PHASE_STYLE.get(q, {}).get("label", q)),
+                                                         (a.end_x[0] / 100, a.end_x[1] / 100))
     data = [d for d in data if d[1] in phases]
     if a.ref != "formation":
         f1, ref_note = reference(data, a.ref)     # reference from all compositions, before --xrange
