@@ -56,6 +56,11 @@ try:
 except ModuleNotFoundError:                                   # Python < 3.11
     import tomli as tomllib                                   # type: ignore
 
+# the driver itself does little numerics; one BLAS/OpenMP thread keeps its mapping/verification workers from
+# oversubscribing the node (batch_free_energy.py sets its own --threads for the NEP runs)
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -161,10 +166,20 @@ class Cfg:
         return self.c["cluster"]["python"]
 
 
-def run(cmd, log=None, check=True):
+def run(cmd, log=None, check=True, stream=False):
+    """run a command; stream=True echoes its output live (indented) while it runs, else it is only logged"""
     show = [Path(str(c)).name if os.sep in str(c) else str(c) for c in cmd]     # short echo; full one in the log
     print("  $ " + " ".join(shlex.quote(c) for c in show), flush=True)
-    r = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
+    if stream:
+        lines = []
+        p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             bufsize=1, env=dict(os.environ, PYTHONUNBUFFERED="1"))
+        for line in p.stdout:
+            lines.append(line)
+            print("    " + line.rstrip("\n"), flush=True)
+        r = subprocess.CompletedProcess(cmd, p.wait(), "".join(lines), "")
+    else:
+        r = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
     if log:
         with open(log, "a") as f:
             f.write("$ " + " ".join(map(str, cmd)) + "\n" + r.stdout + r.stderr + "\n")
@@ -262,10 +277,10 @@ def prepare_one(cfg, n):
     # 2. mapping (restart-safe)
     tpl = [f"{label}={p}" for label, p in cfg.templates]
     cmd = [cfg.py(), cfg.scripts / "batch_map.py", d, "--templates", *tpl, "--glob", "POSCAR_*",
-           "--jobs", m["jobs"], "--skip-existing"]
+           "--jobs", m["jobs"], "--skip-existing", "--progress", 30]
     if m["map_args"]:
         cmd += ["--args", m["map_args"]]
-    r = run(cmd, log, check=False)
+    r = run(cmd, log, check=False, stream=True)
     rows = read_csv(d / "mapped" / "summary.csv")
     bad = [x for x in rows if x["status"] != "ok"]
     if r.returncode != 0 or bad or len(rows) != have * len(cfg.templates):
@@ -344,8 +359,18 @@ def verify_comp(cfg, d, rows):
                 todo.append((r["file"], r["target"], o))
     if todo:
         jobs = [(str(cfg.scripts), str(d / f), str(d / "mapped" / t / o)) for f, t, o in todo]
+        print(f"  compare_ordering: checking {len(jobs)} mapped structures, {cfg['mapping']['jobs']} in parallel",
+              flush=True)
+        verdicts, t0, last = [], time.time(), time.time()
         with ProcessPoolExecutor(max_workers=max(1, int(cfg["mapping"]["jobs"]))) as ex:
-            verdicts = list(ex.map(verify_one, jobs, chunksize=16))
+            for v in ex.map(verify_one, jobs, chunksize=16):
+                verdicts.append(v)
+                now = time.time()
+                if now - last >= 30 and len(verdicts) < len(jobs):
+                    rate = len(verdicts) / (now - t0)
+                    print(f"    checked {len(verdicts)}/{len(jobs)}, {rate:.2f}/s, elapsed {hms(now - t0)}, "
+                          f"ETA {hms((len(jobs) - len(verdicts)) / rate)}", flush=True)
+                    last = now
         new = not vpath.exists()
         with vpath.open("a", newline="") as fh:
             w = csv.writer(fh)

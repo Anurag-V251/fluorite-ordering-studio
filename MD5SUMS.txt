@@ -1,6 +1,6 @@
-c10577b60e3caa1932a83387d378b6da  CHANGELOG.md
-fd50af5948e382a5c0b6d6c9ca8e0f3e  README.md
-a8e9345db64ace5eff60fc65208f8fa6  README_scripts.md
+6b2e60d5a71313eb1d0be0ebe0646929  CHANGELOG.md
+73b49a1f3c0da2b81d5a3dff684a9530  README.md
+14281dab2ffbe14ab16e6efed39453f9  README_scripts.md
 5e80a4771216b32c5df8f6be2c51c028  connect_cluster.sh
 7179a7cf60cd88c557ac2dfe0de1194c  examples/campaign.toml
 4288ff7da6ffbeae79e3fa4d5dfb075f  examples/run_pipeline.sh
@@ -10,8 +10,8 @@ b20426950fedbd2d0a81e9ccc7381a4d  refs/POSCAR_oIII
 287190624b811f1d38484aa3fcf78cd9  refs/POSCAR_t
 3cc5ccb9109da747c08a227a5203b8a6  requirements.txt
 365832ac9c6f4a3f7bb6a6a1bd5cb0a5  scripts/batch_free_energy.py
-a1db4f63957a861cc283db6e02c3c646  scripts/batch_map.py
-9061a79dcd2d230ed69b41e00e52a5f6  scripts/campaign.py
+023557a40441b5e5e1ebe7f1e8f7e459  scripts/batch_map.py
+d62f6fadcc07bb101cfa9613f27bae08  scripts/campaign.py
 b73f7c33447330263d7bea1d2fa2fec6  scripts/compare_ordering.py
 1b01394dca3e92d09a4fcfdf6d1d98c1  scripts/enumerate_substitutions.py
 5d759f6fc8910ddfe8ab55b8b4621899  scripts/icet_sro.py
@@ -62,7 +62,7 @@ aedac9c85c151e16bf83fd1ddff2ea51  studio/modules/tool_transform.toml
 f9e3d7fb50b22717f23dfc4ae9da155d  studio/modules/tool_wc.toml
 b075a4ed6442366bf4bf8781f7b59d97  studio/modules/tool_xrd.toml
 184c0aab7824360e45b5ada6aa48e831  studio/runner.py
-4c6fa245d840d39e637adaf0f64f9d63  studio/runs.py
+d7cce0ef53f16b8d4144ff5c23926451  studio/runs.py
 4751855e304894df70545c20009f4dc9  studio/scan.py
 0e42dcb51f5c3f71348028203492d225  studio/server.py
 3949784eaa02594fe7aeb979810aa01e  studio/single.py
@@ -85,6 +85,7 @@ b48ef8597d2895b145618bce24a2a0cb  tests/mock_calorine/calorine/__init__.py
 b58cd334b8513465b2ed3d69929d0ee0  tests/mock_calorine/calorine/calculators.py
 398dec137cd43df0e23fe541cfe73efc  tests/mock_calorine/calorine/tools.py
 d1ff64867d9a70dd361d7e0aea911a91  tests/smoke_test.sh
+458569c56e493c371610ad5b8a1c8134  tests/test_batch_map.sh
 167ef97d57c570485dc671ceaa207cfc  tests/test_campaign.sh
 ea3a06e8e99d269b947cca20b687a71d  tests/test_formation_ref.py
 49a2cf3754fd4f9ea8826314f817be93  tests/test_single_runs.py

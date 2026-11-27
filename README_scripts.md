@@ -79,6 +79,8 @@ python scripts/batch_map.py Ce_18.75 --templates POSCAR_t POSCAR_m POSCAR_oIII -
 * Templates: 12-atom cells (4 cations + 8 O) of the target phases, axes along the cubic fluorite directions
   (pseudo-cubic setting for t). The phase label is the template name without `POSCAR_`.
 * Output `Ce_18.75/mapped/<phase>/POSCAR_<phase>_<id>_WC<α>` and `mapped/summary.csv`.
+* `--jobs N` workers, each with `--threads` BLAS threads (default 1); `--progress 30` prints a line with count and
+  ETA every 30 s; `summary.csv` is saved every minute, so `--skip-existing` restarts a stopped run where it stopped.
 * The cation on every lattice site is unchanged, so α carries over. Several equally good orientations →
   variant 1 is written (`--args "--all-variants"` writes all).
 
@@ -247,6 +249,7 @@ tests/
   smoke_test.sh                end-to-end run on a synthetic cell (placeholder energies)
   make_test_inputs.py          synthetic POSCAR / templates / CSV for the smoke test
   test_campaign.sh             campaign.py end to end (shapes, restart, SLURM, flags), mock NEP
+  test_batch_map.sh            batch_map.py: four phases x four cell shapes, same output as --subprocess, restart
   mock_calorine/               TEST-ONLY stand-in for calorine (Einstein crystal)
 examples/
   run_pipeline.sh              the full workflow for one composition

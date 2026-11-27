@@ -1,6 +1,6 @@
 # Changelog
 
-Every release is a git tag (`v1.6.1`, `v1.6.0`, `v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
+Every release is a git tag (`v1.6.2`, `v1.6.1`, `v1.6.0`, `v1.5.0`, `v1.4.0`, `v1.3.0`, `v1.2.1`, `v1.2.0`, ...) on `main`. Each change arrives as a pull request whose
 commits are kept, so `git log` shows what changed and when.
 
 ## How to go back to an earlier version
@@ -23,6 +23,26 @@ git push
 Run folders keep their own frozen copy of the scripts, so going back never changes a finished run.
 To use a new `campaign.py` in an old run folder, copy it into `<run>/scripts/` (the old copy can be put back the
 same way). Single runs freeze their scripts the same way (`<single run>/scripts/`).
+
+## 1.6.2 (2026-11-27) - faster, visible mapping in `campaign.py prepare`
+
+`prepare` looked stuck at the `batch_map.py` step on a 96-atom cell (1000 orderings x 3 phases = 3000 mappings):
+it was only slow and silent.
+* `batch_map.py`:
+  * The `--jobs` workers are Python processes that import `map_fluorite.py` once and map file after file, instead
+    of a new Python (numpy + scipy import) per mapping. About 3x faster on a local disk (48 x 96-atom mappings:
+    12 s -> 3.5 s on 4 cores); more on a network filesystem. Outputs and `summary.csv` byte-identical to before.
+    `--subprocess` gives the old mode.
+  * `--threads N` (default 1): BLAS/OpenMP threads per worker, so `--jobs` workers do not oversubscribe the node.
+  * Live progress: every line flushed, with an ETA; `--progress S` prints one line every S s (count, rate, ETA)
+    instead of one per run; failures are always printed at once.
+  * `summary.csv` is saved every 60 s while running, so a run that is stopped restarts with `--skip-existing`
+    where it stopped (before, it was written only at the end and a restart redid everything).
+* `campaign.py prepare` shows the mapping progress live (one line every 30 s) instead of only at the end, prints
+  progress of the compare_ordering check, and runs with one BLAS thread by default.
+* Test: `tests/test_batch_map.sh` (c, t, oIII, m on 2x2x2, 1x2x4, 3x2x2, 1x1x2 cells; same output as
+  `--subprocess`; all IDENTICAL; bad input; kill + restart).
+* Revert: `git checkout v1.6.1` (or `git revert -m 1 <merge commit of the 1.6.2 PR>`).
 
 ## 1.6.1 (2026-11-27) - choose the end points of the formation free energy
 

@@ -64,7 +64,7 @@ Update to the latest version (stop a running app first, or restart it after the 
 
 ```bash
 cd ~/fluorite-ordering-studio && git pull
-git checkout v1.6.1        # optional: go to a tagged release; `git checkout main` to come back
+git checkout v1.6.2        # optional: go to a tagged release; `git checkout main` to come back
 ```
 
 Run folders keep their own frozen copy of the scripts (`<run>/scripts/`), so a `git pull` never changes a
@@ -270,6 +270,12 @@ error. It needs Node and Playwright (`npm i playwright`); it is optional.
 * `scripts/map_fluorite.py` is the package version (md5 afb8ff11…). It differs from the validated one
   (7a6b3022…) only by the `--label` option and the title line, which `batch_map.py` needs. The geometry code
   is identical.
+
+## Changes in 1.6.2
+
+* `campaign.py prepare` shows the mapping progress live with an ETA, and the mapping is about 3x faster
+  (`batch_map.py` workers import `map_fluorite.py` once; 1 BLAS thread each). A stopped prepare now restarts
+  where it stopped. Details: `CHANGELOG.md`.
 
 ## Changes in 1.6.1
 
